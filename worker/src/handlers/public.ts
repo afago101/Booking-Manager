@@ -13,6 +13,7 @@ import {
   errorResponse,
   successResponse,
 } from '../utils/helpers';
+import { sendBookingNotification } from '../utils/email';
 
 export async function handleGetAvailability(c: Context): Promise<Response> {
   try {
@@ -29,19 +30,28 @@ export async function handleGetAvailability(c: Context): Promise<Response> {
 
     const sheets = c.get('sheets') as SheetsService;
 
-    const [bookings, inventory, defaultCapacitySetting] = await Promise.all([
+    const [bookings, inventory, defaultCapacitySetting, closedDatesStr] = await Promise.all([
       sheets.getBookings(),
       sheets.getInventory(),
       sheets.getSetting('defaultCapacity'),
+      sheets.getSetting('closedDates'),
     ]);
 
     const defaultCapacity = parseInt(defaultCapacitySetting || '1');
+    let closedDates: string[] = [];
+    try {
+      closedDates = JSON.parse(closedDatesStr || '[]');
+    } catch {
+      closedDates = [];
+    }
+    
     const dates = getDatesInRange(from, to);
     const availability: AvailabilityDay[] = [];
 
     for (const date of dates) {
       const inventoryDay = inventory.find(inv => inv.date === date);
-      const isClosed = inventoryDay?.isClosed || false;
+      // 檢查 Prices 工作表的 isClosed 或 config 的 closedDates
+      const isClosed = inventoryDay?.isClosed || closedDates.includes(date);
       const capacity = inventoryDay?.capacity || defaultCapacity;
 
       // Count confirmed bookings for this date
@@ -158,17 +168,25 @@ export async function handleCreateBooking(c: Context): Promise<Response> {
 
     // Check availability
     const dates = getDatesInRange(checkInDate, checkOutDate);
-    const [bookings, inventory, defaultCapacitySetting] = await Promise.all([
+    const [bookings, inventory, defaultCapacitySetting, closedDatesStr] = await Promise.all([
       sheets.getBookings(),
       sheets.getInventory(),
       sheets.getSetting('defaultCapacity'),
+      sheets.getSetting('closedDates'),
     ]);
 
     const defaultCapacity = parseInt(defaultCapacitySetting || '1');
+    let closedDates: string[] = [];
+    try {
+      closedDates = JSON.parse(closedDatesStr || '[]');
+    } catch {
+      closedDates = [];
+    }
 
     for (const date of dates) {
       const inventoryDay = inventory.find(inv => inv.date === date);
-      const isClosed = inventoryDay?.isClosed || false;
+      // 檢查 Prices 工作表的 isClosed 或 config 的 closedDates
+      const isClosed = inventoryDay?.isClosed || closedDates.includes(date);
       const capacity = inventoryDay?.capacity || defaultCapacity;
 
       if (isClosed) {
@@ -205,6 +223,53 @@ export async function handleCreateBooking(c: Context): Promise<Response> {
     };
 
     await sheets.createBooking(newBooking);
+
+    // 發送 email 通知（異步，不阻塞響應）
+    const sendEmailNotification = async () => {
+      try {
+        const [notificationEmailsStr, emailApiKey, emailFrom, emailFromName] = await Promise.all([
+          sheets.getSetting('notificationEmails'),
+          sheets.getSetting('emailApiKey'),
+          sheets.getSetting('emailFrom'),
+          sheets.getSetting('emailFromName'),
+        ]);
+
+        let notificationEmails: string[] = [];
+        try {
+          notificationEmails = JSON.parse(notificationEmailsStr || '[]');
+        } catch {
+          notificationEmails = [];
+        }
+
+        if (notificationEmails.length > 0 && emailApiKey) {
+          await sendBookingNotification(
+            {
+              apiKey: emailApiKey,
+              fromEmail: emailFrom || 'noreply@example.com',
+              fromName: emailFromName || '訂房系統',
+            },
+            notificationEmails,
+            {
+              bookingId: newBooking.id,
+              guestName: newBooking.guestName,
+              contactPhone: newBooking.contactPhone,
+              lineName: newBooking.lineName || '',
+              checkInDate: newBooking.checkInDate,
+              checkOutDate: newBooking.checkOutDate,
+              numberOfGuests: newBooking.numberOfGuests,
+              totalPrice: newBooking.totalPrice,
+              createdAt: newBooking.createdAt,
+            }
+          );
+        }
+      } catch (emailError) {
+        console.error('Failed to send email notification:', emailError);
+        // 不影響訂單創建的成功響應
+      }
+    };
+
+    // 非阻塞發送email
+    c.executionCtx?.waitUntil(sendEmailNotification());
 
     return new Response(
       JSON.stringify({ id: newBooking.id, status: newBooking.status }),

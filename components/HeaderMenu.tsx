@@ -46,6 +46,22 @@ const HeaderMenu: React.FC = () => {
             >
                 <div className="py-1" role="menu" aria-orientation="vertical" aria-labelledby="options-menu">
                     <Link
+                        to="/"
+                        className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                        role="menuitem"
+                        onClick={() => setIsOpen(false)}
+                    >
+                        {lang === 'zh' ? '首頁' : 'Home'}
+                    </Link>
+                    <Link
+                        to="/booking"
+                        className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                        role="menuitem"
+                        onClick={() => setIsOpen(false)}
+                    >
+                        {lang === 'zh' ? '訂房' : 'Booking'}
+                    </Link>
+                    <Link
                         to="/lookup"
                         className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
                         role="menuitem"

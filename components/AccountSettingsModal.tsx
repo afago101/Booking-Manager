@@ -33,7 +33,7 @@ const AccountSettingsModal: React.FC<AccountSettingsModalProps> = ({ onClose }) 
     setIsSaving(true);
     try {
       await apiService.updateAdminPassword(currentPassword, newPassword);
-      setSuccess('密碼已成功更新！');
+      setSuccess('密碼已成功更新！新密碼已自動生效。');
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');

@@ -9,13 +9,13 @@
     "tail": "wrangler tail"
   },
   "dependencies": {
+    "google-auth-library": "^10.4.2",
     "hono": "^3.11.7",
     "nanoid": "^5.0.4"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20231218.0",
-    "wrangler": "^3.22.1",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "wrangler": "^3.22.1"
   }
 }
-

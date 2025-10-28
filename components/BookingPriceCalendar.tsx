@@ -71,28 +71,44 @@ const BookingPriceCalendar: React.FC<BookingPriceCalendarProps> = ({ prices, una
     if (clickedDate < today || clickedDate > maxDate) return;
 
     const dateStr = formatDateToYYYYMMDD(clickedDate);
-    
-    if (unavailableDates.includes(dateStr)) return;
 
     if (!checkInDate || (checkInDate && checkOutDate)) {
+        // 開始新的選擇 - 選擇入住日
+        // 入住日必須是可用的
+        if (unavailableDates.includes(dateStr)) return;
         setCheckInDate(clickedDate);
         setCheckOutDate(null);
     } else if (clickedDate > checkInDate) {
-        // Check if range is valid
+        // 選擇退房日
+        // 重要：檢查入住期間（不含退房日）是否都可用
+        // 例如：入住 10/28，退房 10/29，只檢查 10/28
         let tempDate = new Date(checkInDate);
-        tempDate.setDate(tempDate.getDate() + 1);
+        let hasUnavailableDate = false;
+        
         while (tempDate < clickedDate) {
             const tempDateStr = formatDateToYYYYMMDD(tempDate);
             if (unavailableDates.includes(tempDateStr)) {
-                // Invalid range, reset selection
-                setCheckInDate(clickedDate);
-                setCheckOutDate(null);
-                return;
+                hasUnavailableDate = true;
+                break;
             }
             tempDate.setDate(tempDate.getDate() + 1);
         }
-        setCheckOutDate(clickedDate);
+        
+        if (hasUnavailableDate) {
+            // 範圍中有不可用的日期
+            // 如果點擊的退房日本身可用，可作為新的入住日
+            if (!unavailableDates.includes(dateStr)) {
+                setCheckInDate(clickedDate);
+                setCheckOutDate(null);
+            }
+            // 否則什麼都不做
+        } else {
+            // 範圍有效，設定退房日（退房日本身是否被佔用不重要）
+            setCheckOutDate(clickedDate);
+        }
     } else {
+        // 點選了比入住日更早的日期，嘗試設為新的入住日
+        if (unavailableDates.includes(dateStr)) return;
         setCheckInDate(clickedDate);
         setCheckOutDate(null);
     }
@@ -108,8 +124,11 @@ const BookingPriceCalendar: React.FC<BookingPriceCalendarProps> = ({ prices, una
     
     const isPast = date < today;
     const isBeyondMax = date > maxDate;
-    const isUnavailable = unavailableDates.includes(dateStr);
-    const isDisabled = isPast || isUnavailable || isBeyondMax;
+    const isUnavailableForCheckIn = unavailableDates.includes(dateStr);
+    
+    // 視覺上：已被預訂的日期始終顯示為不可用狀態（灰色）
+    // 但點擊邏輯會允許作為退房日
+    const isVisuallyDisabled = isPast || isBeyondMax || isUnavailableForCheckIn;
 
     const dayOfWeek = date.getDay();
     // A "weekend night" is Friday night (5) or Saturday night (6).
@@ -131,24 +150,39 @@ const BookingPriceCalendar: React.FC<BookingPriceCalendarProps> = ({ prices, una
                          : inRange ? 'text-brand-dark'
                          : 'text-gray-600';
 
+    // 判斷是否真的不可點擊
+    // 過去的日期和超過範圍的日期完全不可點
+    // 已被預訂的日期：如果是選擇入住日階段則不可點，但選擇退房日階段可以點
+    const isActuallyDisabled = isPast || isBeyondMax || 
+                               ((!checkInDate || (checkInDate && checkOutDate)) && isUnavailableForCheckIn);
+    
+    // 如果這個日期是退房日，即使它在 unavailableDates 中，也應該顯示為正常選中狀態（不是灰色）
+    const shouldShowAsAvailable = isCheckOut || isCheckIn || inRange;
+    
     const dayClasses = `
         relative p-2 text-center border-t border-r border-gray-200 flex flex-col justify-center items-center h-20
-        ${isDisabled ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'cursor-pointer hover:bg-brand-light/50'}
+        ${isVisuallyDisabled && !shouldShowAsAvailable ? 'bg-gray-100 text-gray-400' : 'cursor-pointer hover:bg-brand-light/50'}
         ${isCheckIn ? 'bg-brand-primary text-white rounded-l-full' : ''}
         ${isCheckOut ? 'bg-brand-primary text-white rounded-r-full' : ''}
         ${inRange ? 'bg-brand-light text-brand-dark' : ''}
+        ${!isActuallyDisabled && isVisuallyDisabled && checkInDate && !checkOutDate ? 'cursor-pointer hover:opacity-80' : ''}
+        ${isActuallyDisabled ? 'cursor-not-allowed' : ''}
     `;
+
+    // 退房日不顯示價格（因為不需要付費）
+    const shouldShowPrice = (!isVisuallyDisabled || shouldShowAsAvailable) && !isCheckOut;
 
     calendarDays.push(
       <div 
         key={day} 
-        onClick={() => !isDisabled && handleDayClick(day)}
+        onClick={() => !isActuallyDisabled && handleDayClick(day)}
         onMouseEnter={() => setHoverDate(date)}
         onMouseLeave={() => setHoverDate(null)}
         className={dayClasses}
         >
         <span className="text-sm font-medium">{day}</span>
-        {!isDisabled && <span className={`text-xs ${priceTextColor}`}>${price}</span>}
+        {shouldShowPrice && <span className={`text-xs ${priceTextColor}`}>${price}</span>}
+        {isCheckOut && <span className="text-xs text-white">退房</span>}
       </div>
     );
   }

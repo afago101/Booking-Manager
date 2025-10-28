@@ -1,4 +1,4 @@
-name = "booking-manager-worker"
+name = "booking-api-public"
 main = "src/index.ts"
 compatibility_date = "2024-01-01"
 
@@ -11,6 +11,11 @@ compatibility_date = "2024-01-01"
 
 [vars]
 NODE_ENV = "production"
+
+# Custom domains
+routes = [
+  { pattern = "api.marcus.uk/*", custom_domain = true }
+]
 
 # Development settings
 [env.development]

@@ -86,27 +86,28 @@ export class SheetsService {
     const rows = await this.getSheetData('Bookings');
     if (rows.length <= 1) return []; // No data or only headers
 
-    const headers = rows[0];
     const bookings: Booking[] = [];
 
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
       if (!row[0]) continue; // Skip empty rows
 
+      // 對應 Bookings 表頭順序：id, guestName, checkInDate, checkOutDate, numberOfGuests, 
+      // totalPrice, contactPhone, lineName, useCoupon, arrivalTime, status, createdAt
       bookings.push({
         id: row[0] || '',
         guestName: row[1] || '',
-        contactPhone: row[2] || '',
-        lineName: row[3] || undefined,
-        checkInDate: row[4] || '',
-        checkOutDate: row[5] || '',
-        numberOfGuests: parseInt(row[6]) || 0,
-        useCoupon: row[7] === 'TRUE' || row[7] === true,
-        arrivalTime: row[8] || undefined,
-        totalPrice: parseFloat(row[9]) || 0,
+        checkInDate: row[2] || '',
+        checkOutDate: row[3] || '',
+        numberOfGuests: parseInt(row[4]) || 0,
+        totalPrice: parseFloat(row[5]) || 0,
+        contactPhone: row[6] || '',
+        lineName: row[7] || undefined,
+        useCoupon: row[8] === 'TRUE' || row[8] === true,
+        arrivalTime: row[9] || undefined,
         status: (row[10] || 'pending') as 'pending' | 'confirmed' | 'cancelled',
         createdAt: row[11] || new Date().toISOString(),
-        updatedAt: row[12] || new Date().toISOString(),
+        updatedAt: row[11] || new Date().toISOString(), // 使用 createdAt 作為 updatedAt
       });
     }
 
@@ -114,20 +115,20 @@ export class SheetsService {
   }
 
   async createBooking(booking: Booking): Promise<void> {
+    // 對應 Bookings 表頭順序
     const row = [
       booking.id,
       booking.guestName,
-      booking.contactPhone,
-      booking.lineName || '',
       booking.checkInDate,
       booking.checkOutDate,
       booking.numberOfGuests,
+      booking.totalPrice,
+      booking.contactPhone,
+      booking.lineName || '',
       booking.useCoupon ? 'TRUE' : 'FALSE',
       booking.arrivalTime || '',
-      booking.totalPrice,
       booking.status,
       booking.createdAt,
-      booking.updatedAt,
     ];
 
     await this.appendRows('Bookings', [row]);
@@ -151,23 +152,23 @@ export class SheetsService {
     const updated = { ...existing, ...updates, updatedAt: new Date().toISOString() };
     const rowIndex = index + 2; // +1 for header, +1 for 1-based indexing
 
+    // 對應 Bookings 表頭順序
     const row = [
       updated.id,
       updated.guestName,
-      updated.contactPhone,
-      updated.lineName || '',
       updated.checkInDate,
       updated.checkOutDate,
       updated.numberOfGuests,
+      updated.totalPrice,
+      updated.contactPhone,
+      updated.lineName || '',
       updated.useCoupon ? 'TRUE' : 'FALSE',
       updated.arrivalTime || '',
-      updated.totalPrice,
       updated.status,
       updated.createdAt,
-      updated.updatedAt,
     ];
 
-    await this.updateRange(`Bookings!A${rowIndex}:M${rowIndex}`, [row]);
+    await this.updateRange(`Bookings!A${rowIndex}:L${rowIndex}`, [row]);
   }
 
   async deleteBooking(bookingId: string): Promise<void> {
@@ -182,92 +183,118 @@ export class SheetsService {
     }
 
     const rowIndex = index + 2;
-    // Clear the row
-    await this.updateRange(`Bookings!A${rowIndex}:M${rowIndex}`, [['', '', '', '', '', '', '', '', '', '', '', '', '']]);
+    // Clear the row (12 columns)
+    await this.updateRange(`Bookings!A${rowIndex}:L${rowIndex}`, [['', '', '', '', '', '', '', '', '', '', '', '']]);
   }
 
-  // === INVENTORY ===
+  // === PRICES (對應 Prices 工作表) ===
 
-  async getInventory(): Promise<Inventory[]> {
-    const rows = await this.getSheetData('Inventory');
+  async getPrices(): Promise<Array<{date: string; price: number; isClosed: boolean}>> {
+    const rows = await this.getSheetData('Prices');
     if (rows.length <= 1) return [];
 
-    const inventory: Inventory[] = [];
+    const prices: Array<{date: string; price: number; isClosed: boolean}> = [];
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
       if (!row[0]) continue;
 
-      inventory.push({
+      prices.push({
         date: row[0],
-        isClosed: row[1] === 'TRUE' || row[1] === true,
-        capacity: parseInt(row[2]) || 1,
-        note: row[3] || undefined,
+        price: parseFloat(row[1]) || 0,
+        isClosed: row[2] === 'TRUE' || row[2] === true,
       });
     }
 
-    return inventory;
+    return prices;
+  }
+
+  async updatePrice(date: string, price: number, isClosed: boolean): Promise<void> {
+    const prices = await this.getPrices();
+    const index = prices.findIndex(p => p.date === date);
+
+    const row = [date, price, isClosed ? 'TRUE' : 'FALSE'];
+
+    if (index === -1) {
+      await this.appendRows('Prices', [row]);
+    } else {
+      const rowIndex = index + 2;
+      await this.updateRange(`Prices!A${rowIndex}:C${rowIndex}`, [row]);
+    }
+  }
+
+  // 為了向後相容，保留 Inventory 介面
+  async getInventory(): Promise<Inventory[]> {
+    const prices = await this.getPrices();
+    return prices.map(p => ({
+      date: p.date,
+      isClosed: p.isClosed,
+      capacity: 1, // 預設容量為 1
+      note: undefined,
+    }));
   }
 
   async updateInventory(date: string, data: Inventory): Promise<void> {
-    const inventory = await this.getInventory();
-    const index = inventory.findIndex(inv => inv.date === date);
-
-    const row = [
-      data.date,
-      data.isClosed ? 'TRUE' : 'FALSE',
-      data.capacity,
-      data.note || '',
-    ];
-
-    if (index === -1) {
-      // Create new
-      await this.appendRows('Inventory', [row]);
-    } else {
-      // Update existing
-      const rowIndex = index + 2;
-      await this.updateRange(`Inventory!A${rowIndex}:D${rowIndex}`, [row]);
-    }
+    // 轉換為 Prices 格式
+    const defaultPrice = parseFloat(await this.getSetting('defaultWeekday') || '5000');
+    await this.updatePrice(date, defaultPrice, data.isClosed);
   }
 
-  // === SETTINGS ===
+  // === CONFIG (對應 config 工作表) ===
 
-  async getSettings(): Promise<Setting[]> {
-    const rows = await this.getSheetData('Settings');
+  async getConfig(): Promise<Array<{key: string; value: string}>> {
+    const rows = await this.getSheetData('config');
     if (rows.length <= 1) return [];
 
-    const settings: Setting[] = [];
+    const config: Array<{key: string; value: string}> = [];
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
       if (!row[0]) continue;
 
-      settings.push({
+      config.push({
         key: row[0],
         value: row[1] || '',
-        updatedAt: row[2] || new Date().toISOString(),
       });
     }
 
-    return settings;
+    return config;
+  }
+
+  async getConfigValue(key: string): Promise<string | null> {
+    const config = await this.getConfig();
+    const item = config.find(c => c.key === key);
+    return item ? item.value : null;
+  }
+
+  async updateConfig(key: string, value: string): Promise<void> {
+    const config = await this.getConfig();
+    const index = config.findIndex(c => c.key === key);
+
+    const row = [key, value];
+
+    if (index === -1) {
+      await this.appendRows('config', [row]);
+    } else {
+      const rowIndex = index + 2;
+      await this.updateRange(`config!A${rowIndex}:B${rowIndex}`, [row]);
+    }
+  }
+
+  // 為了向後相容，保留 Settings 介面
+  async getSettings(): Promise<Setting[]> {
+    const config = await this.getConfig();
+    return config.map(c => ({
+      key: c.key,
+      value: c.value,
+      updatedAt: new Date().toISOString(),
+    }));
   }
 
   async getSetting(key: string): Promise<string | null> {
-    const settings = await this.getSettings();
-    const setting = settings.find(s => s.key === key);
-    return setting ? setting.value : null;
+    return this.getConfigValue(key);
   }
 
   async updateSetting(key: string, value: string): Promise<void> {
-    const settings = await this.getSettings();
-    const index = settings.findIndex(s => s.key === key);
-
-    const row = [key, value, new Date().toISOString()];
-
-    if (index === -1) {
-      await this.appendRows('Settings', [row]);
-    } else {
-      const rowIndex = index + 2;
-      await this.updateRange(`Settings!A${rowIndex}:C${rowIndex}`, [row]);
-    }
+    return this.updateConfig(key, value);
   }
 
   // === INITIALIZATION ===
@@ -278,26 +305,32 @@ export class SheetsService {
       const bookingsData = await this.getSheetData('Bookings').catch(() => []);
       if (bookingsData.length === 0) {
         await this.appendRows('Bookings', [[
-          'id', 'guestName', 'contactPhone', 'lineName', 'checkInDate', 'checkOutDate',
-          'numberOfGuests', 'useCoupon', 'arrivalTime', 'totalPrice', 'status', 'createdAt', 'updatedAt'
+          'id', 'guestName', 'checkInDate', 'checkOutDate', 'numberOfGuests', 
+          'totalPrice', 'contactPhone', 'lineName', 'useCoupon', 'arrivalTime', 
+          'status', 'createdAt'
         ]]);
       }
 
-      const inventoryData = await this.getSheetData('Inventory').catch(() => []);
-      if (inventoryData.length === 0) {
-        await this.appendRows('Inventory', [['date', 'isClosed', 'capacity', 'note']]);
+      const pricesData = await this.getSheetData('Prices').catch(() => []);
+      if (pricesData.length === 0) {
+        await this.appendRows('Prices', [['date', 'price', 'isClosed']]);
       }
 
-      const settingsData = await this.getSheetData('Settings').catch(() => []);
-      if (settingsData.length === 0) {
-        await this.appendRows('Settings', [['key', 'value', 'updatedAt']]);
-        // Add default settings
-        const now = new Date().toISOString();
-        await this.appendRows('Settings', [
-          ['nightlyPriceDefault', '5000', now],
-          ['weekendPriceDefault', '7000', now],
-          ['couponDiscount', '500', now],
-          ['defaultCapacity', '1', now],
+      const configData = await this.getSheetData('config').catch(() => []);
+      if (configData.length === 0) {
+        await this.appendRows('config', [['key', 'value']]);
+        // Add default config
+        await this.appendRows('config', [
+          ['adminPassword', '40lVHrWkepi2cOwZq7U19vIgNFaDoRXL'],
+          ['nightlyPriceDefault', '2890'],
+          ['weekendPriceDefault', '4000'],
+          ['defaultWeekday', '5000'],
+          ['defaultWeekend', '7000'],
+          ['closedDates', '[]'],
+          ['notificationEmails', '[]'],
+          ['emailApiKey', ''],
+          ['emailFrom', 'noreply@yourdomain.com'],
+          ['emailFromName', '訂房系統'],
         ]);
       }
     } catch (error) {
@@ -305,4 +338,5 @@ export class SheetsService {
     }
   }
 }
+
 

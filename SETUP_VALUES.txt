@@ -1,0 +1,108 @@
+═══════════════════════════════════════════════════════════
+  Cloudflare Worker 設定值（請保密此檔案）
+═══════════════════════════════════════════════════════════
+
+⚠️  重要：此檔案包含敏感資訊，請勿分享或提交到 Git
+
+─────────────────────────────────────────────────────────
+
+1. GOOGLE_SHEETS_ID
+   值：1MdxsHfSOo8Y4OJt7OnqOpSDYwTq3OHjIdNav-CaN4Uw
+   
+   命令：
+   wrangler secret put GOOGLE_SHEETS_ID
+   然後貼上上面的值
+
+─────────────────────────────────────────────────────────
+
+2. GOOGLE_CLIENT_EMAIL
+   值：booking-sheet-manager@gen-lang-client-0646685275.iam.gserviceaccount.com
+   
+   命令：
+   wrangler secret put GOOGLE_CLIENT_EMAIL
+   然後貼上上面的值
+
+─────────────────────────────────────────────────────────
+
+3. GOOGLE_PRIVATE_KEY
+   ⚠️  從 gen-lang-client-0646685275-2fada029dc0f.json 檔案中
+   複製 "private_key" 的完整值（包含換行符號 \n）
+   
+   應該是這樣的格式：
+   -----BEGIN PRIVATE KEY-----\nMIIEvQ...(很長)...DVQcA=\n-----END PRIVATE KEY-----\n
+   
+   命令：
+   wrangler secret put GOOGLE_PRIVATE_KEY
+   然後貼上完整的 private_key 值
+
+─────────────────────────────────────────────────────────
+
+4. ADMIN_API_KEY
+   值：[ 請自己生成一個強密碼 ]
+   
+   生成方式（擇一）：
+   a) 使用 OpenSSL：openssl rand -hex 32
+   b) 使用線上工具：https://www.random.org/strings/
+   c) 使用密碼管理器生成
+   
+   ⚠️  重要：請記住這個密碼！
+   稍後需要設定到：
+   - GitHub Secrets (VITE_ADMIN_API_KEY)
+   - 前端 .env.production (VITE_ADMIN_API_KEY)
+   
+   命令：
+   wrangler secret put ADMIN_API_KEY
+   然後輸入您生成的密碼
+
+─────────────────────────────────────────────────────────
+
+5. CORS_ORIGINS
+   開發環境：*
+   生產環境：https://your-site.pages.dev
+   
+   命令：
+   wrangler secret put CORS_ORIGINS
+   然後輸入 * （開發時）
+
+─────────────────────────────────────────────────────────
+
+快速設定指令（逐一執行）：
+═══════════════════════════════════════════════════════════
+
+cd worker
+wrangler login
+wrangler secret put GOOGLE_SHEETS_ID
+wrangler secret put GOOGLE_CLIENT_EMAIL
+wrangler secret put GOOGLE_PRIVATE_KEY
+wrangler secret put ADMIN_API_KEY
+wrangler secret put CORS_ORIGINS
+
+─────────────────────────────────────────────────────────
+
+部署 Worker：
+═══════════════════════════════════════════════════════════
+
+npm install
+npm run deploy
+
+部署完成後會顯示 Worker URL，例如：
+https://booking-manager-worker.YOUR_SUBDOMAIN.workers.dev
+
+─────────────────────────────────────────────────────────
+
+初始化 Google Sheets：
+═══════════════════════════════════════════════════════════
+
+curl -X POST https://YOUR_WORKER_URL/api/admin/initialize \
+  -H "x-admin-key: YOUR_ADMIN_API_KEY"
+
+或使用 PowerShell：
+Invoke-RestMethod -Uri "https://YOUR_WORKER_URL/api/admin/initialize" `
+  -Method POST `
+  -Headers @{"x-admin-key"="YOUR_ADMIN_API_KEY"}
+
+─────────────────────────────────────────────────────────
+
+完成後請刪除此檔案！
+═══════════════════════════════════════════════════════════
+

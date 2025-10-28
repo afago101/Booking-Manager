@@ -15,9 +15,33 @@ import {
 
 // Base URL for API - can be configured via environment variable
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
-const ADMIN_API_KEY = import.meta.env.VITE_ADMIN_API_KEY || '';
 
 class ApiService {
+  private adminPassword: string | null = null;
+
+  // 設定當前登入的管理員密碼
+  setAdminPassword(password: string): void {
+    this.adminPassword = password;
+    // 持久化到 sessionStorage
+    sessionStorage.setItem('adminPassword', password);
+  }
+
+  // 取得當前的管理員密碼
+  getAdminPassword(): string {
+    if (!this.adminPassword) {
+      // 從 sessionStorage 恢復
+      this.adminPassword = sessionStorage.getItem('adminPassword') || 
+                          import.meta.env.VITE_ADMIN_API_KEY || '';
+    }
+    return this.adminPassword;
+  }
+
+  // 清除管理員密碼
+  clearAdminPassword(): void {
+    this.adminPassword = null;
+    sessionStorage.removeItem('adminPassword');
+  }
+
   private async fetchAPI<T>(
     endpoint: string,
     options: RequestInit = {},
@@ -28,8 +52,11 @@ class ApiService {
       ...options.headers,
     };
 
-    if (isAdmin && ADMIN_API_KEY) {
-      headers['x-admin-key'] = ADMIN_API_KEY;
+    if (isAdmin) {
+      const adminKey = this.getAdminPassword();
+      if (adminKey) {
+        headers['x-admin-key'] = adminKey;
+      }
     }
 
     const response = await fetch(`${API_BASE_URL}${endpoint}`, {
@@ -166,16 +193,36 @@ class ApiService {
     return bookings.filter(b => b.contactPhone === phone);
   }
 
-  // Admin password management (if needed for legacy admin page)
+  // Admin password management
   async login(password: string): Promise<boolean> {
-    // For now, just check if we have the admin key
-    // In production, you might want a proper login endpoint
-    return ADMIN_API_KEY === password;
+    try {
+      // 臨時設定密碼
+      this.setAdminPassword(password);
+      
+      // 嘗試調用 admin API 來驗證密碼
+      await this.getBookings();
+      
+      // 如果成功，密碼正確
+      return true;
+    } catch (error) {
+      // 驗證失敗，清除密碼
+      this.clearAdminPassword();
+      return false;
+    }
   }
 
   async updateAdminPassword(currentPassword: string, newPassword: string): Promise<void> {
-    // This would need to be implemented if you want to manage admin keys dynamically
-    throw new Error('Admin password update not implemented in this version');
+    // 驗證當前密碼
+    const savedPassword = this.getAdminPassword();
+    if (currentPassword !== savedPassword) {
+      throw new Error('目前密碼不正確');
+    }
+    
+    // 更新 Google Sheets 中的 adminPassword
+    await this.updateSetting('adminPassword', newPassword);
+    
+    // 自動更新本地存儲的密碼
+    this.setAdminPassword(newPassword);
   }
 
   // Notification emails (if needed)
@@ -196,17 +243,31 @@ class ApiService {
   // Price settings backward compatibility
   async getPriceSettings(): Promise<any> {
     const settings = await this.getSettings();
+    const closedDatesStr = settings['closedDates'] || '[]';
+    let closedDates: string[] = [];
+    try {
+      closedDates = JSON.parse(closedDatesStr);
+    } catch {
+      closedDates = [];
+    }
+    
     return {
       defaultWeekday: parseFloat(settings['nightlyPriceDefault'] || '5000'),
       defaultWeekend: parseFloat(settings['weekendPriceDefault'] || '7000'),
       dates: {},
-      closedDates: [],
+      closedDates: closedDates,
     };
   }
 
   async updatePriceSettings(settings: any): Promise<any> {
     await this.updateSetting('nightlyPriceDefault', settings.defaultWeekday.toString());
     await this.updateSetting('weekendPriceDefault', settings.defaultWeekend.toString());
+    
+    // 更新關閉的日期列表
+    if (settings.closedDates) {
+      await this.updateSetting('closedDates', JSON.stringify(settings.closedDates));
+    }
+    
     return settings;
   }
 }

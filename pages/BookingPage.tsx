@@ -141,7 +141,7 @@ const BookingPage: React.FC<BookingPageProps> = ({ setLastBooking }) => {
     setError('');
     setIsSubmitting(true);
     try {
-      const newBooking = await apiService.createBooking({
+      const response = await apiService.createBooking({
         guestName: formData.guestName,
         contactPhone: formData.contactPhone,
         lineName: formData.lineName,
@@ -152,7 +152,25 @@ const BookingPage: React.FC<BookingPageProps> = ({ setLastBooking }) => {
         arrivalTime: formData.arrivalTime,
         totalPrice,
       });
-      setLastBooking(newBooking);
+      
+      // 構建完整的 Booking 物件用於確認頁面
+      const completeBooking: Booking = {
+        id: response.id,
+        guestName: formData.guestName,
+        contactPhone: formData.contactPhone,
+        lineName: formData.lineName,
+        checkInDate,
+        checkOutDate,
+        numberOfGuests: Number(formData.numberOfGuests),
+        useCoupon: formData.useCoupon === 'yes',
+        arrivalTime: formData.arrivalTime,
+        totalPrice,
+        status: response.status,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      
+      setLastBooking(completeBooking);
       navigate('/confirmation');
     } catch (err) {
       const errorMessage = (err as Error).message;

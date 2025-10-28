@@ -4,10 +4,11 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { apiService } from '../services/apiService';
 import { Booking } from '../types';
-import { useTranslations } from '../contexts/LanguageContext';
+import { useLanguage, useTranslations } from '../contexts/LanguageContext';
 
 const LookupPage: React.FC = () => {
   const t = useTranslations();
+  const { lang } = useLanguage();
   const [phone, setPhone] = useState('');
   const [bookings, setBookings] = useState<Booking[] | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -113,7 +114,7 @@ const LookupPage: React.FC = () => {
       </div>
        <div className="w-full max-w-lg text-center py-4">
         <Link to="/" className="text-base text-gray-500 hover:text-brand-primary hover:underline">
-          {t.buttons.backToBooking}
+          {lang === 'zh' ? '返回首頁' : 'Back to Home'}
         </Link>
       </div>
     </div>

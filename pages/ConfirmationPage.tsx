@@ -5,7 +5,7 @@ import { Navigate, Link } from 'react-router-dom';
 import { Booking } from '../types';
 import { generateICSFile } from '../utils/fileGenerators';
 import { CheckCircleIcon, CalendarDaysIcon } from '../components/icons';
-import { useTranslations } from '../contexts/LanguageContext';
+import { useLanguage, useTranslations } from '../contexts/LanguageContext';
 
 interface ConfirmationPageProps {
   booking: Booking | null;
@@ -13,6 +13,7 @@ interface ConfirmationPageProps {
 
 const ConfirmationPage: React.FC<ConfirmationPageProps> = ({ booking }) => {
   const t = useTranslations();
+  const { lang } = useLanguage();
 
   if (!booking) {
     return <Navigate to="/" replace />;
@@ -94,7 +95,7 @@ const ConfirmationPage: React.FC<ConfirmationPageProps> = ({ booking }) => {
             to="/"
             className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-md font-medium text-white bg-brand-primary hover:bg-brand-dark focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-brand-primary transition-colors"
           >
-            {t.buttons.backToBooking}
+            {lang === 'zh' ? '返回首頁' : 'Back to Home'}
           </Link>
         </div>
       </div>
