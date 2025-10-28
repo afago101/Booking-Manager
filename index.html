@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Blessing Bay Booking System</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              'brand-primary': '#005f73',
+              'brand-secondary': '#0a9396',
+              'brand-light': '#94d2bd',
+              'brand-accent': '#e9d8a6',
+              'brand-dark': '#001219',
+              'brand-bg': '#f8f9fa',
+            },
+          }
+        }
+      }
+    </script>
+    <style>
+      /* --- Dark Mode Color Override --- */
+      /* This style block ensures the application, especially the admin dashboard,
+         maintains a consistent light theme even when the OS is in dark mode. */
+      
+      /* The 'color-scheme' property prevents the browser from auto-inverting colors on these elements. */
+      html, body, .bg-white, .bg-gray-50, .bg-gray-100, .fixed.inset-0 {
+        color-scheme: light;
+      }
+
+      /* Explicitly set input styles as they are often heavily styled by user-agent stylesheets. */
+      input:not([type="checkbox"]):not([type="radio"]),
+      select,
+      textarea {
+        background-color: white;
+        color: #1f2937; /* Equiv. to text-gray-800 */
+      }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^0.14.0",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "react": "https://aistudiocdn.com/react@^19.2.0",
+    "react-router-dom": "https://aistudiocdn.com/react-router-dom@^7.9.4",
+    "express": "https://aistudiocdn.com/express@^5.1.0",
+    "dotenv": "https://aistudiocdn.com/dotenv@^17.2.3",
+    "bcryptjs": "https://aistudiocdn.com/bcryptjs@^3.0.2",
+    "cors": "https://aistudiocdn.com/cors@^2.8.5",
+    "google-spreadsheet": "https://aistudiocdn.com/google-spreadsheet@^5.0.2",
+    "buffer": "https://aistudiocdn.com/buffer@^6.0.3",
+    "process": "https://aistudiocdn.com/process@^0.11.10",
+    "google-auth-library": "https://aistudiocdn.com/google-auth-library@^10.4.2",
+    "path": "https://aistudiocdn.com/path@^0.12.7",
+    "fs": "https://aistudiocdn.com/fs@^0.0.1-security",
+    "url": "https://aistudiocdn.com/url@^0.11.4",
+    "googleapis": "https://aistudiocdn.com/googleapis@^164.1.0",
+    "body-parser": "https://aistudiocdn.com/body-parser@^2.2.0",
+    "crypto": "https://aistudiocdn.com/crypto@^1.0.1"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+  <body class="bg-brand-bg">
+    <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+  </body>
+</html>

@@ -1,0 +1,5 @@
+{
+  "name": "Blessing Bay Booking System",
+  "description": "A full-featured booking management system for Blessing Bay, including a guest-facing reservation page and a comprehensive admin dashboard for managing bookings, viewing calendars, and exporting data.",
+  "requestFramePermissions": []
+}

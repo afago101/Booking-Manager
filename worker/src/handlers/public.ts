@@ -1,0 +1,223 @@
+// Public API handlers (no authentication required)
+
+import { Context } from 'hono';
+import { SheetsService } from '../utils/sheets';
+import { AvailabilityDay, Booking } from '../types';
+import {
+  generateId,
+  getDatesInRange,
+  calculateNights,
+  isWeekend,
+  validateDateFormat,
+  validatePhoneNumber,
+  errorResponse,
+  successResponse,
+} from '../utils/helpers';
+
+export async function handleGetAvailability(c: Context): Promise<Response> {
+  try {
+    const from = c.req.query('from');
+    const to = c.req.query('to');
+
+    if (!from || !to) {
+      return errorResponse('Missing from or to query parameter', 'BAD_REQUEST', 400);
+    }
+
+    if (!validateDateFormat(from) || !validateDateFormat(to)) {
+      return errorResponse('Invalid date format. Use YYYY-MM-DD', 'BAD_REQUEST', 400);
+    }
+
+    const sheets = c.get('sheets') as SheetsService;
+
+    const [bookings, inventory, defaultCapacitySetting] = await Promise.all([
+      sheets.getBookings(),
+      sheets.getInventory(),
+      sheets.getSetting('defaultCapacity'),
+    ]);
+
+    const defaultCapacity = parseInt(defaultCapacitySetting || '1');
+    const dates = getDatesInRange(from, to);
+    const availability: AvailabilityDay[] = [];
+
+    for (const date of dates) {
+      const inventoryDay = inventory.find(inv => inv.date === date);
+      const isClosed = inventoryDay?.isClosed || false;
+      const capacity = inventoryDay?.capacity || defaultCapacity;
+
+      // Count confirmed bookings for this date
+      const bookedCount = bookings.filter(booking => {
+        if (booking.status === 'cancelled') return false;
+        const bookingDates = getDatesInRange(booking.checkInDate, booking.checkOutDate);
+        return bookingDates.includes(date);
+      }).length;
+
+      availability.push({
+        date,
+        isClosed,
+        capacity,
+        bookedCount,
+        available: !isClosed && bookedCount < capacity,
+      });
+    }
+
+    return successResponse(availability);
+  } catch (error: any) {
+    console.error('Error in handleGetAvailability:', error);
+    return errorResponse(error.message || 'Internal server error', 'INTERNAL_ERROR', 500);
+  }
+}
+
+export async function handleQuote(c: Context): Promise<Response> {
+  try {
+    const body = await c.req.json();
+    const { checkInDate, checkOutDate, numberOfGuests, useCoupon } = body;
+
+    if (!checkInDate || !checkOutDate) {
+      return errorResponse('Missing required fields', 'BAD_REQUEST', 400);
+    }
+
+    if (!validateDateFormat(checkInDate) || !validateDateFormat(checkOutDate)) {
+      return errorResponse('Invalid date format', 'BAD_REQUEST', 400);
+    }
+
+    if (new Date(checkInDate) >= new Date(checkOutDate)) {
+      return errorResponse('Check-out date must be after check-in date', 'BAD_REQUEST', 400);
+    }
+
+    const sheets = c.get('sheets') as SheetsService;
+
+    const [nightlyPrice, weekendPrice, couponDiscount] = await Promise.all([
+      sheets.getSetting('nightlyPriceDefault'),
+      sheets.getSetting('weekendPriceDefault'),
+      sheets.getSetting('couponDiscount'),
+    ]);
+
+    const defaultNightlyPrice = parseFloat(nightlyPrice || '5000');
+    const defaultWeekendPrice = parseFloat(weekendPrice || '7000');
+    const discount = useCoupon ? parseFloat(couponDiscount || '500') : 0;
+
+    const dates = getDatesInRange(checkInDate, checkOutDate);
+    let basePrice = 0;
+
+    for (const date of dates) {
+      const price = isWeekend(date) ? defaultWeekendPrice : defaultNightlyPrice;
+      basePrice += price;
+    }
+
+    const total = Math.max(0, basePrice - discount);
+
+    return successResponse({
+      nights: dates.length,
+      basePrice,
+      discount,
+      total,
+    });
+  } catch (error: any) {
+    console.error('Error in handleQuote:', error);
+    return errorResponse(error.message || 'Internal server error', 'INTERNAL_ERROR', 500);
+  }
+}
+
+export async function handleCreateBooking(c: Context): Promise<Response> {
+  try {
+    const body = await c.req.json();
+    const {
+      guestName,
+      contactPhone,
+      lineName,
+      checkInDate,
+      checkOutDate,
+      numberOfGuests,
+      useCoupon,
+      arrivalTime,
+      totalPrice,
+    } = body;
+
+    // Validation
+    if (!guestName || !contactPhone || !checkInDate || !checkOutDate || !numberOfGuests || totalPrice === undefined) {
+      return errorResponse('Missing required fields', 'BAD_REQUEST', 400);
+    }
+
+    if (!validatePhoneNumber(contactPhone)) {
+      return errorResponse('Invalid phone number format', 'BAD_REQUEST', 400);
+    }
+
+    if (!validateDateFormat(checkInDate) || !validateDateFormat(checkOutDate)) {
+      return errorResponse('Invalid date format', 'BAD_REQUEST', 400);
+    }
+
+    if (new Date(checkInDate) >= new Date(checkOutDate)) {
+      return errorResponse('Check-out date must be after check-in date', 'BAD_REQUEST', 400);
+    }
+
+    if (numberOfGuests <= 0) {
+      return errorResponse('Number of guests must be greater than 0', 'BAD_REQUEST', 400);
+    }
+
+    const sheets = c.get('sheets') as SheetsService;
+
+    // Check availability
+    const dates = getDatesInRange(checkInDate, checkOutDate);
+    const [bookings, inventory, defaultCapacitySetting] = await Promise.all([
+      sheets.getBookings(),
+      sheets.getInventory(),
+      sheets.getSetting('defaultCapacity'),
+    ]);
+
+    const defaultCapacity = parseInt(defaultCapacitySetting || '1');
+
+    for (const date of dates) {
+      const inventoryDay = inventory.find(inv => inv.date === date);
+      const isClosed = inventoryDay?.isClosed || false;
+      const capacity = inventoryDay?.capacity || defaultCapacity;
+
+      if (isClosed) {
+        return errorResponse(`Date ${date} is closed`, 'CONFLICT', 409);
+      }
+
+      const bookedCount = bookings.filter(booking => {
+        if (booking.status === 'cancelled') return false;
+        const bookingDates = getDatesInRange(booking.checkInDate, booking.checkOutDate);
+        return bookingDates.includes(date);
+      }).length;
+
+      if (bookedCount >= capacity) {
+        return errorResponse(`Date ${date} is fully booked`, 'CONFLICT', 409);
+      }
+    }
+
+    // Create booking
+    const now = new Date().toISOString();
+    const newBooking: Booking = {
+      id: generateId('booking'),
+      guestName,
+      contactPhone,
+      lineName,
+      checkInDate,
+      checkOutDate,
+      numberOfGuests,
+      useCoupon: useCoupon || false,
+      arrivalTime,
+      totalPrice,
+      status: 'pending',
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    await sheets.createBooking(newBooking);
+
+    return new Response(
+      JSON.stringify({ id: newBooking.id, status: newBooking.status }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } }
+    );
+  } catch (error: any) {
+    console.error('Error in handleCreateBooking:', error);
+    
+    if (error.message.includes('CONFLICT')) {
+      return errorResponse('Booking conflict detected', 'CONFLICT', 409);
+    }
+
+    return errorResponse(error.message || 'Internal server error', 'INTERNAL_ERROR', 500);
+  }
+}
+

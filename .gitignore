@@ -1,0 +1,41 @@
+# Dependencies
+node_modules/
+worker/node_modules/
+
+# Build output
+dist/
+worker/dist/
+.wrangler/
+
+# Environment variables
+.env
+.env.local
+.env.production
+.env.*.local
+.dev.vars
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Cloudflare
+wrangler.toml.backup
+
+# Sensitive
+*.key
+*.pem
+service-account.json
+credentials.json
+**/credentials.json
+gen-lang-client-*.json
