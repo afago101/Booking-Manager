@@ -4,6 +4,7 @@ export interface Booking {
   id: string;
   guestName: string;
   contactPhone: string;
+  email: string; // 新增email欄位
   lineName?: string;
   checkInDate: string; // YYYY-MM-DD
   checkOutDate: string; // YYYY-MM-DD
@@ -54,6 +55,7 @@ export interface QuoteResponse {
 export interface BookingCreateRequest {
   guestName: string;
   contactPhone: string;
+  email: string; // 新增email欄位
   lineName?: string;
   checkInDate: string;
   checkOutDate: string;
@@ -96,6 +98,7 @@ export interface DailyPrices {
 export interface BookingFormData {
     guestName: string;
     contactPhone: string;
+    email: string; // 新增email欄位
     lineName: string;
     numberOfGuests: number;
     useCoupon: 'yes' | 'no';

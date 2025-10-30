@@ -89,13 +89,13 @@ const AdminBookingList: React.FC<AdminBookingListProps> = ({ onDataChange }) => 
                     </span>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="text-sm font-medium text-gray-900">{booking.guestName}</div>
+                  <div className="text-sm font-medium text-gray-700">{booking.guestName}</div>
                   <div className="text-sm text-gray-500">{booking.contactPhone}</div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                   {booking.checkInDate} ~ {booking.checkOutDate}
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-medium"> {booking.totalPrice.toLocaleString()} 元</td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 font-medium"> {booking.totalPrice.toLocaleString()} 元</td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm space-x-2">
                     {booking.status === 'pending' && (
                         <button onClick={() => handleStatusChange(booking, 'confirmed')} className="px-2 py-1 text-xs bg-green-500 text-white rounded hover:bg-green-600">確認</button>

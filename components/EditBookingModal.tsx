@@ -109,7 +109,7 @@ const EditBookingModal: React.FC<EditBookingModalProps> = ({ booking, onClose, o
               </div>
                <div className="md:col-span-2 flex items-center">
                     <input type="checkbox" name="useCoupon" id="useCoupon" checked={formData.useCoupon} onChange={handleChange} className="form-checkbox h-4 w-4" />
-                    <label htmlFor="useCoupon" className="ml-2 block text-sm text-gray-900">使用優惠券</label>
+                    <label htmlFor="useCoupon" className="ml-2 block text-sm text-gray-700">使用優惠券</label>
                </div>
             </div>
             {error && <p className="text-red-500 text-sm">{error}</p>}

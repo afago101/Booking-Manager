@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
+import HeaderMenu from '../components/HeaderMenu';
 import { apiService } from '../services/apiService';
 import { Booking } from '../types';
 import { useLanguage, useTranslations } from '../contexts/LanguageContext';
@@ -51,6 +52,7 @@ const LookupPage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4">
+      <HeaderMenu />
       <div className="w-full max-w-lg bg-white rounded-lg shadow-lg p-6 md:p-8 space-y-6">
         <div className="text-center">
           <h1 className="text-3xl font-bold text-brand-dark">{t.lookupPage.title}</h1>

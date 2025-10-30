@@ -227,6 +227,8 @@ export async function handleCreateBooking(c: Context): Promise<Response> {
     // 發送 email 通知（異步，不阻塞響應）
     const sendEmailNotification = async () => {
       try {
+        console.log('📧 Starting email notification process...');
+        
         const [notificationEmailsStr, emailApiKey, emailFrom, emailFromName] = await Promise.all([
           sheets.getSetting('notificationEmails'),
           sheets.getSetting('emailApiKey'),
@@ -234,36 +236,57 @@ export async function handleCreateBooking(c: Context): Promise<Response> {
           sheets.getSetting('emailFromName'),
         ]);
 
+        console.log('📧 Email config retrieved:', {
+          notificationEmailsStr: notificationEmailsStr ? '***' : 'null',
+          emailApiKey: emailApiKey ? '***' : 'null',
+          emailFrom: emailFrom || 'null',
+          emailFromName: emailFromName || 'null',
+        });
+
         let notificationEmails: string[] = [];
         try {
           notificationEmails = JSON.parse(notificationEmailsStr || '[]');
-        } catch {
+          console.log('📧 Parsed notification emails:', notificationEmails);
+        } catch (parseError) {
+          console.error('📧 Failed to parse notificationEmails JSON:', parseError);
           notificationEmails = [];
         }
 
-        if (notificationEmails.length > 0 && emailApiKey) {
-          await sendBookingNotification(
-            {
-              apiKey: emailApiKey,
-              fromEmail: emailFrom || 'noreply@example.com',
-              fromName: emailFromName || '訂房系統',
-            },
-            notificationEmails,
-            {
-              bookingId: newBooking.id,
-              guestName: newBooking.guestName,
-              contactPhone: newBooking.contactPhone,
-              lineName: newBooking.lineName || '',
-              checkInDate: newBooking.checkInDate,
-              checkOutDate: newBooking.checkOutDate,
-              numberOfGuests: newBooking.numberOfGuests,
-              totalPrice: newBooking.totalPrice,
-              createdAt: newBooking.createdAt,
-            }
-          );
+        if (notificationEmails.length === 0) {
+          console.log('📧 No notification emails configured, skipping email notification');
+          return;
         }
+
+        if (!emailApiKey) {
+          console.log('📧 No email API key configured, skipping email notification');
+          return;
+        }
+
+        console.log('📧 Sending email notification to:', notificationEmails);
+        
+        const emailResult = await sendBookingNotification(
+          {
+            apiKey: emailApiKey,
+            fromEmail: emailFrom || 'noreply@example.com',
+            fromName: emailFromName || '訂房系統',
+          },
+          notificationEmails,
+          {
+            bookingId: newBooking.id,
+            guestName: newBooking.guestName,
+            contactPhone: newBooking.contactPhone,
+            lineName: newBooking.lineName || '',
+            checkInDate: newBooking.checkInDate,
+            checkOutDate: newBooking.checkOutDate,
+            numberOfGuests: newBooking.numberOfGuests,
+            totalPrice: newBooking.totalPrice,
+            createdAt: newBooking.createdAt,
+          }
+        );
+
+        console.log('📧 Email notification result:', emailResult);
       } catch (emailError) {
-        console.error('Failed to send email notification:', emailError);
+        console.error('📧 Failed to send email notification:', emailError);
         // 不影響訂單創建的成功響應
       }
     };
