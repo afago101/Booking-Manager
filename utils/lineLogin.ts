@@ -1,5 +1,7 @@
 // LINE Login utility
 
+import { frontendLogger } from './frontendLogger';
+
 const LINE_CHANNEL_ID = import.meta.env.VITE_LINE_CHANNEL_ID || '';
 const LINE_LIFF_ID = import.meta.env.VITE_LINE_LIFF_ID || '';
 
@@ -31,9 +33,29 @@ export function initLineLogin(): Promise<void> {
     console.log('[LIFF] User agent:', userAgent);
     console.log('[LIFF] Is in LINE app:', isInLineApp);
     
+    // ✅ 記錄到後台監測
+    frontendLogger.log({
+      service: 'line',
+      action: 'liff_init_start',
+      status: 'info',
+      message: 'Starting LIFF initialization',
+      details: {
+        hasLiffId: !!LINE_LIFF_ID,
+        hasChannelId: !!LINE_CHANNEL_ID,
+        isInLineApp,
+        userAgent: userAgent.substring(0, 100), // 限制長度
+      },
+    });
+    
     if (!isInLineApp) {
       // 不在 LINE 環境中，不需要 LIFF
       console.log('[LIFF] Not in LINE environment, skipping initialization');
+      frontendLogger.log({
+        service: 'line',
+        action: 'liff_init_skipped',
+        status: 'info',
+        message: 'Not in LINE environment, skipping LIFF initialization',
+      });
       resolve();
       return;
     }
@@ -44,6 +66,12 @@ export function initLineLogin(): Promise<void> {
     if (!liffId) {
       // 沒有 LIFF ID，跳過 LIFF 初始化（將使用 OAuth）
       console.warn('[LIFF] No LIFF ID or Channel ID, skipping initialization');
+      frontendLogger.log({
+        service: 'line',
+        action: 'liff_init_failed',
+        status: 'warning',
+        message: 'No LIFF ID or Channel ID configured',
+      });
       resolve();
       return;
     }
@@ -64,15 +92,34 @@ export function initLineLogin(): Promise<void> {
       const checkInterval = setInterval(() => {
         if (window.liff && window.liff.init) {
           clearInterval(checkInterval);
-          window.liff.init({ liffId })
-            .then(() => {
-              console.log('[LIFF] LIFF initialized successfully');
-              resolve();
-            })
-            .catch((err) => {
-              console.error('[LIFF] LIFF init failed:', err);
-              resolve(); // 不拋出錯誤，允許使用 OAuth 流程
+        window.liff.init({ liffId })
+          .then(() => {
+            console.log('[LIFF] LIFF initialized successfully');
+            frontendLogger.log({
+              service: 'line',
+              action: 'liff_init_success',
+              status: 'success',
+              message: 'LIFF initialized successfully',
+              details: {
+                liffId: liffId.substring(0, 15) + '...',
+              },
             });
+            resolve();
+          })
+          .catch((err) => {
+            console.error('[LIFF] LIFF init failed:', err);
+            frontendLogger.log({
+              service: 'line',
+              action: 'liff_init_failed',
+              status: 'error',
+              message: 'LIFF initialization failed',
+              details: {
+                error: err.message || String(err),
+                liffId: liffId.substring(0, 15) + '...',
+              },
+            });
+            resolve(); // 不拋出錯誤，允許使用 OAuth 流程
+          });
         }
       }, 100);
       
@@ -98,10 +145,29 @@ export function initLineLogin(): Promise<void> {
         window.liff.init({ liffId })
           .then(() => {
             console.log('[LIFF] LIFF initialized successfully');
+            frontendLogger.log({
+              service: 'line',
+              action: 'liff_init_success',
+              status: 'success',
+              message: 'LIFF initialized successfully',
+              details: {
+                liffId: liffId.substring(0, 15) + '...',
+              },
+            });
             resolve();
           })
           .catch((err) => {
             console.error('[LIFF] LIFF init failed:', err);
+            frontendLogger.log({
+              service: 'line',
+              action: 'liff_init_failed',
+              status: 'error',
+              message: 'LIFF initialization failed',
+              details: {
+                error: err.message || String(err),
+                liffId: liffId.substring(0, 15) + '...',
+              },
+            });
             resolve(); // 不拋出錯誤，允許使用 OAuth 流程
           });
       } else {
@@ -118,20 +184,39 @@ export function initLineLogin(): Promise<void> {
 }
 
 /**
- * 檢查是否在 LINE 環境中
- * 使用 userAgent 檢測，不依賴 LIFF 是否已初始化
+ * 檢查是否在 LINE 環境中（LIFF）
+ * 必須同時滿足：
+ * 1. userAgent 包含 LINE
+ * 2. LIFF SDK 已初始化
+ * 3. isInClient() === true
+ * 
+ * 只有真正從 LINE App 進入時才返回 true
  */
 export function isInLine(): boolean {
   if (typeof window === 'undefined') return false;
   
-  // 如果 LIFF 已初始化，使用其判斷
-  if (window.liff && typeof window.liff.isInClient === 'function') {
-    return window.liff.isInClient() === true;
+  // 首先檢查 userAgent
+  const userAgent = navigator.userAgent || '';
+  const hasLineUserAgent = userAgent.includes('Line') || userAgent.includes('LINE');
+  
+  if (!hasLineUserAgent) {
+    // 連 userAgent 都不包含 LINE，肯定不是 LINE 環境
+    return false;
   }
   
-  // 否則使用 userAgent 檢測
-  const userAgent = navigator.userAgent || '';
-  return userAgent.includes('Line') || userAgent.includes('LINE');
+  // userAgent 包含 LINE，但還需要確認 LIFF 是否真的可用
+  // 只有 LIFF 已初始化且 isInClient() === true 才是真正的 LIFF 環境
+  if (window.liff && typeof window.liff.isInClient === 'function') {
+    const inClient = window.liff.isInClient();
+    console.log('[isInLine] LIFF check:', { inClient, isInClient: inClient === true });
+    return inClient === true;
+  }
+  
+  // userAgent 包含 LINE 但 LIFF 未初始化
+  // 這種情況下可能是從 LINE App 打開，但 LIFF 還沒初始化完成
+  // 為了嚴格判斷，返回 false（需要等待 LIFF 初始化）
+  console.log('[isInLine] UserAgent contains LINE but LIFF not initialized');
+  return false;
 }
 
 /**
@@ -169,12 +254,24 @@ export async function getLineProfile(): Promise<LineUserInfo | null> {
     if (!window.liff.isLoggedIn()) {
       if (window.liff.isInClient()) {
         console.log('[LIFF] Not logged in, triggering login...');
+        frontendLogger.log({
+          service: 'line',
+          action: 'liff_auto_login',
+          status: 'info',
+          message: 'Not logged in, triggering automatic login',
+        });
         // 在 LINE App 中，自動觸發登入
         window.liff.login();
         // 登入會觸發重新導向，這裡返回 null，等待重新載入
         return null;
       } else {
         console.warn('[LIFF] Not logged in and not in LINE client');
+        frontendLogger.log({
+          service: 'line',
+          action: 'liff_not_logged_in',
+          status: 'warning',
+          message: 'Not logged in and not in LINE client',
+        });
         // 不在 LINE App 中，返回 null
         return null;
       }
@@ -188,6 +285,19 @@ export async function getLineProfile(): Promise<LineUserInfo | null> {
       hasPicture: !!profile.pictureUrl,
     });
     
+    // ✅ 記錄到後台監測
+    frontendLogger.log({
+      service: 'line',
+      action: 'liff_profile_received',
+      status: 'success',
+      message: 'LINE profile received successfully',
+      userId: profile.userId,
+      details: {
+        displayName: profile.displayName,
+        hasPicture: !!profile.pictureUrl,
+      },
+    });
+    
     // LIFF 的 getProfile() 可以直接取得 userId（真正的 LINE User ID）
     // 不需要 idToken 驗證
     
@@ -198,6 +308,15 @@ export async function getLineProfile(): Promise<LineUserInfo | null> {
     };
   } catch (error) {
     console.error('[LIFF] Error getting LINE profile:', error);
+    frontendLogger.log({
+      service: 'line',
+      action: 'liff_profile_error',
+      status: 'error',
+      message: 'Error getting LINE profile',
+      details: {
+        error: error instanceof Error ? error.message : String(error),
+      },
+    });
     return null;
   }
 }
@@ -271,8 +390,8 @@ export async function loginWithLine(): Promise<void> {
     console.log('[LINE Login] Redirect URI:', redirectUri);
     console.log('[LINE Login] Encoded Redirect URI:', encodedRedirectUri);
     
-    // 只使用 profile scope，不使用 openid
-    const lineLoginUrl = `https://access.line.me/oauth2/v2.1/authorize?response_type=code&client_id=${channelId}&redirect_uri=${encodedRedirectUri}&state=${state}&scope=profile`;
+    // ✅ 修正：加入 openid scope 以取得真正的 LINE User ID
+    const lineLoginUrl = `https://access.line.me/oauth2/v2.1/authorize?response_type=code&client_id=${channelId}&redirect_uri=${encodedRedirectUri}&state=${state}&scope=profile openid`;
     
     // 儲存 state 到 sessionStorage 以便驗證
     sessionStorage.setItem('line_oauth_state', state);
@@ -401,6 +520,20 @@ export async function handleLineOAuthCallback(): Promise<string | null> {
         redirectUri,
       });
       
+      // ✅ 記錄到後台監測
+      frontendLogger.log({
+        service: 'line',
+        action: 'oauth_callback_failed',
+        status: 'error',
+        message: 'OAuth callback failed',
+        details: {
+          status: response.status,
+          statusText: response.statusText,
+          error: errorMessage,
+          redirectUri,
+        },
+      });
+      
       throw new Error(errorMessage);
     }
 
@@ -413,25 +546,38 @@ export async function handleLineOAuthCallback(): Promise<string | null> {
       name: data.name,
     });
     
-    // 恢復到原來的路徑（如果有保存）
-    const returnPath = sessionStorage.getItem('line_oauth_return_path');
-    if (returnPath) {
-      console.log('[LINE OAuth] Restoring path:', returnPath);
-      sessionStorage.removeItem('line_oauth_return_path');
-      sessionStorage.removeItem('line_oauth_redirect_uri'); // 清除已使用的 redirectUri
-      // 清除 URL 中的 code 和 state 參數，恢復到原來的路徑
-      window.history.replaceState({}, '', returnPath);
-    } else {
-      // 如果沒有保存的路徑，至少清除 URL 參數
-      const currentPath = window.location.pathname;
-      window.history.replaceState({}, '', currentPath);
-    }
+    // ✅ 記錄到後台監測
+    frontendLogger.log({
+      service: 'line',
+      action: 'oauth_callback_success',
+      status: 'success',
+      message: 'OAuth callback completed successfully',
+      userId: data.lineUserId,
+      details: {
+        hasAccessToken: !!data.accessToken,
+        hasIdToken: !!data.idToken,
+        name: data.name,
+      },
+    });
     
-    // 如果是 OAuth callback，返回 accessToken
-    // 如果是 LIFF，返回 idToken（需要在 getLineProfile 中處理）
-    return data.accessToken || data.idToken || null;
+    // ✅ 修正：不在這裡清除 URL，讓調用者處理
+    // 這樣可以確保組件先處理完 token 和狀態更新，再清除 URL
+    // 避免因為 URL 清除導致 React Router 重新渲染而中斷處理流程
+    
+    // ✅ 修正：優先返回 idToken（如果有），否則返回 accessToken
+    // idToken 可用於取得真正的 LINE User ID
+    return data.idToken || data.accessToken || null;
   } catch (error) {
     console.error('[LINE OAuth] Error handling OAuth callback:', error);
+    frontendLogger.log({
+      service: 'line',
+      action: 'oauth_callback_error',
+      status: 'error',
+      message: 'Error handling OAuth callback',
+      details: {
+        error: error instanceof Error ? error.message : String(error),
+      },
+    });
     return null;
   }
 }

@@ -1,13 +1,14 @@
 // pages/ConfirmationPage.tsx
 
 import React, { useState, useEffect } from 'react';
-import { Navigate, Link } from 'react-router-dom';
+import { Navigate, Link, useNavigate } from 'react-router-dom';
 import { Booking } from '../types';
 import { generateICSFile } from '../utils/fileGenerators';
 import { CheckCircleIcon, CalendarDaysIcon } from '../components/icons';
 import { useLanguage, useTranslations } from '../contexts/LanguageContext';
 import { apiService } from '../services/apiService';
-import { loginWithLine, getLineProfile, isInLine } from '../utils/lineLogin';
+import { loginWithLine, getLineProfile, isInLine, initLineLogin } from '../utils/lineLogin';
+import { frontendLogger } from '../utils/frontendLogger';
 
 interface ConfirmationPageProps {
   booking: Booking | null;
@@ -16,6 +17,7 @@ interface ConfirmationPageProps {
 const ConfirmationPage: React.FC<ConfirmationPageProps> = ({ booking }) => {
   const t = useTranslations();
   const { lang } = useLanguage();
+  const navigate = useNavigate();
   const [isBinding, setIsBinding] = useState(false);
   const [bindingSuccess, setBindingSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -41,24 +43,58 @@ const ConfirmationPage: React.FC<ConfirmationPageProps> = ({ booking }) => {
     try {
       setIsBinding(true);
       setError(null);
+      
+      console.log('[ConfirmationPage] Starting LINE binding process...');
 
-      // 如果在 LINE 環境中，直接取得 profile
+      // ✅ 修正：先檢查是否在真正的 LIFF 環境中
       let lineUserInfo = null;
-      if (isInLine()) {
-        lineUserInfo = await getLineProfile();
+      const isReallyInLine = isInLine();
+      
+      console.log('[ConfirmationPage] isInLine check:', isReallyInLine);
+      
+      if (isReallyInLine) {
+        // 在 LIFF 環境中，初始化 LIFF 並取得 profile
+        console.log('[ConfirmationPage] In LIFF environment, initializing and getting profile...');
+        try {
+          await initLineLogin();
+          // 等待 LIFF 初始化
+          await new Promise(resolve => setTimeout(resolve, 500));
+          lineUserInfo = await getLineProfile();
+          
+          if (lineUserInfo && lineUserInfo.lineUserId) {
+            console.log('[ConfirmationPage] LINE profile obtained via LIFF:', {
+              userId: lineUserInfo.lineUserId,
+              name: lineUserInfo.name,
+            });
+          }
+        } catch (liffErr) {
+          console.error('[ConfirmationPage] Error getting LIFF profile:', liffErr);
+        }
       }
-
-      // 如果不在 LINE 環境或未登入，打開 LINE 登入
-      if (!lineUserInfo) {
+      
+      // 如果不在 LIFF 環境或 LIFF 取得失敗，使用 OAuth 流程
+      if (!lineUserInfo || !lineUserInfo.lineUserId) {
+        console.log('[ConfirmationPage] Not in LIFF or LIFF failed, using OAuth flow...');
         await loginWithLine();
-        // 登入後會重新導向，所以這裡不需要繼續
+        // 登入後會重新導向到 OAuth callback，所以這裡不需要繼續
         return;
       }
 
-      // 綁定訂單
-      const bindResult = await apiService.bindBooking(id, lineUserInfo.lineUserId, guestName, contactPhone, email);
+      // ✅ 確認：如果到這裡，一定有 lineUserId，執行綁定
+      console.log('[ConfirmationPage] Binding booking with LINE UID:', lineUserInfo.lineUserId);
       
-      // 確保客戶資料已同步（雙重保險）
+      // 綁定訂單
+      const bindResult = await apiService.bindBooking(
+        id, 
+        lineUserInfo.lineUserId, 
+        guestName, 
+        contactPhone, 
+        email
+      );
+      
+      console.log('[ConfirmationPage] Booking bound, syncing customer profile...');
+      
+      // ✅ 修正：確保客戶資料已同步（雙重保險）
       try {
         await apiService.syncCustomerProfile(
           lineUserInfo.lineUserId,
@@ -68,18 +104,62 @@ const ConfirmationPage: React.FC<ConfirmationPageProps> = ({ booking }) => {
           contactPhone,
           email
         );
+        console.log('[ConfirmationPage] Customer profile synced successfully');
       } catch (syncErr) {
-        console.warn('Additional sync failed, but bind succeeded:', syncErr);
+        console.warn('[ConfirmationPage] Additional sync failed, but bind succeeded:', syncErr);
       }
       
-      // 設定成功狀態
+      // ✅ 記錄到後台監測
+      frontendLogger.log({
+        service: 'line',
+        action: 'confirmation_page_bind_success',
+        status: 'success',
+        message: 'LINE account bound successfully on confirmation page',
+        userId: lineUserInfo.lineUserId,
+        details: {
+          bookingId: id,
+          name: lineUserInfo.name,
+          hasPicture: !!lineUserInfo.picture,
+        },
+      });
+      
+      // ✅ 修正：一般瀏覽器綁定成功後導向成功頁面
+      // 檢查是否在 LIFF 環境中
+      const isInLiff = typeof window !== 'undefined' && window.liff && window.liff.isInClient && window.liff.isInClient();
+      
+      if (!isInLiff) {
+        // 一般瀏覽器：導向綁定成功頁面
+        setTimeout(() => {
+          navigate('/line-bind-success', {
+            state: {
+              bookingId: id,
+              lineUserName: lineUserInfo.name,
+            },
+            replace: true,
+          });
+        }, 100);
+        return; // 不需要設定 bindingSuccess，因為已經導向其他頁面
+      }
+      
+      // LIFF 環境：設定成功狀態
       setBindingSuccess(true);
       
-      // 顯示成功訊息（包含客戶資料）
-      console.log('綁定成功，客戶資料已同步到 Sheets:', bindResult.profile);
+      // 顯示成功訊息
+      console.log('[ConfirmationPage] Binding successful, customer profile synced:', bindResult.profile);
     } catch (err: any) {
-      console.error('Error binding LINE:', err);
+      console.error('[ConfirmationPage] Error binding LINE:', err);
       setError(err.message || '綁定失敗，請稍後再試');
+      
+      // ✅ 記錄到後台監測
+      frontendLogger.log({
+        service: 'line',
+        action: 'confirmation_page_bind_error',
+        status: 'error',
+        message: 'Failed to bind LINE account',
+        details: {
+          error: err instanceof Error ? err.message : String(err),
+        },
+      });
     } finally {
       setIsBinding(false);
     }
@@ -101,6 +181,14 @@ const ConfirmationPage: React.FC<ConfirmationPageProps> = ({ booking }) => {
     });
     
     if (code && state && !lineUserId && !bindingSuccess && !isBinding) {
+      // ✅ 修正：使用 sessionStorage 標記防止重複處理
+      const processingKey = `oauth_processing_${state}`;
+      if (sessionStorage.getItem(processingKey)) {
+        console.log('[ConfirmationPage] OAuth callback already processing, skipping...');
+        return;
+      }
+      sessionStorage.setItem(processingKey, 'true');
+      
       console.log('[ConfirmationPage] Processing OAuth callback for booking binding...');
       setIsBinding(true);
       
@@ -137,6 +225,11 @@ const ConfirmationPage: React.FC<ConfirmationPageProps> = ({ booking }) => {
               console.warn('[ConfirmationPage] Additional sync failed, but bind succeeded:', syncErr);
             }
             
+            // ✅ 修正：在處理完所有狀態後再清除 URL
+            const returnPath = sessionStorage.getItem('line_oauth_return_path') || '/confirmation';
+            sessionStorage.removeItem('line_oauth_return_path');
+            sessionStorage.removeItem('line_oauth_redirect_uri');
+            
             // 設定成功狀態
             setBindingSuccess(true);
             setIsBinding(false);
@@ -144,21 +237,65 @@ const ConfirmationPage: React.FC<ConfirmationPageProps> = ({ booking }) => {
             // 顯示成功訊息（包含客戶資料）
             console.log('[ConfirmationPage] 綁定成功，客戶資料已同步到 Sheets:', bindResult.profile);
             
-            // URL 參數已在 handleLineOAuthCallback 中清除並恢復到原路徑
+            // ✅ 記錄到後台監測
+            frontendLogger.log({
+              service: 'line',
+              action: 'confirmation_page_bind_success',
+              status: 'success',
+              message: 'LINE account bound successfully on confirmation page',
+              userId: result.lineUserId,
+              details: {
+                bookingId: id,
+                name: result.name,
+                hasPicture: !!result.picture,
+              },
+            });
+            
+            // ✅ 修正：一般瀏覽器綁定成功後導向成功頁面
+            // 檢查是否在 LINE 環境中（LIFF）
+            const userAgent = navigator.userAgent || '';
+            const isInLineEnv = userAgent.includes('Line') || userAgent.includes('LINE');
+            const isInLiff = typeof window !== 'undefined' && window.liff && window.liff.isInClient && window.liff.isInClient();
+            
+            if (!isInLiff) {
+              // 一般瀏覽器：導向綁定成功頁面
+              setTimeout(() => {
+                navigate('/line-bind-success', {
+                  state: {
+                    bookingId: id,
+                    lineUserName: result.name,
+                  },
+                  replace: true,
+                });
+              }, 100);
+            } else {
+              // LIFF 環境：留在確認頁，顯示成功訊息
+              setTimeout(() => {
+                window.history.replaceState({}, '', returnPath);
+              }, 100);
+              setBindingSuccess(true);
+              setIsBinding(false);
+            }
+            
+            // 清除處理標記
+            sessionStorage.removeItem(processingKey);
           } catch (bindErr: any) {
             console.error('[ConfirmationPage] Error binding booking:', bindErr);
             setError(bindErr.message || '綁定失敗，請稍後再試');
             setIsBinding(false);
+            sessionStorage.removeItem(processingKey); // 錯誤時清除標記
           }
         } else {
           console.warn('[ConfirmationPage] OAuth callback returned null token');
           setError('綁定失敗，請稍後再試');
           setIsBinding(false);
+          sessionStorage.removeItem(processingKey); // 失敗時清除標記
         }
       }).catch((err) => {
         console.error('[ConfirmationPage] Error handling OAuth callback:', err);
         setError('綁定失敗，請稍後再試');
         setIsBinding(false);
+        sessionStorage.removeItem(processingKey); // 錯誤時清除標記
       });
     }
   }, [id, guestName, contactPhone, email, lineUserId, bindingSuccess, isBinding]);

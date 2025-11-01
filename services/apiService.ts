@@ -286,10 +286,27 @@ class ApiService {
       body.accessToken = token;
     }
     
-    return this.fetchAPI<{ lineUserId: string; name?: string; picture?: string }>('/line/verify', {
+    // ✅ 修正：如果有 idToken 在 response 中，優先使用 idToken
+    // 這確保能取得真正的 LINE User ID
+    const response = await this.fetchAPI<{ 
+      lineUserId: string; 
+      name?: string; 
+      picture?: string;
+      idToken?: string;
+    }>('/line/verify', {
       method: 'POST',
       body: JSON.stringify(body),
     });
+    
+    // 如果 response 包含 idToken，且目前使用的是 accessToken，改用 idToken 重新驗證
+    if (response.idToken && !body.idToken) {
+      return this.fetchAPI<{ lineUserId: string; name?: string; picture?: string }>('/line/verify', {
+        method: 'POST',
+        body: JSON.stringify({ idToken: response.idToken }),
+      });
+    }
+    
+    return response;
   }
 
   async getCustomerProfile(lineUserId: string): Promise<CustomerProfile> {
@@ -433,6 +450,29 @@ class ApiService {
     await this.fetchAPI<void>('/admin/logs', {
       method: 'DELETE',
     }, true);
+  }
+
+  async sendFrontendLog(log: {
+    service: string;
+    action: string;
+    status: 'success' | 'error' | 'warning' | 'info';
+    message: string;
+    details?: any;
+    userId?: string;
+  }): Promise<void> {
+    // This is a public endpoint (no admin auth needed)
+    try {
+      await fetch(`${API_BASE_URL}/admin/logs/frontend`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ logs: [log] }),
+      });
+    } catch (error) {
+      // Silently fail - don't break user experience
+      console.warn('Failed to send frontend log:', error);
+    }
   }
 }
 

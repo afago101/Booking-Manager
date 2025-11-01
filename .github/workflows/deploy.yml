@@ -5,52 +5,102 @@ on:
     branches:
       - main
       - master
+    paths-ignore:
+      - '**.md'
+      - '**/README.md'
+      - '.gitignore'
+      - '*.log'
   workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+      - master
+    types: [closed]
 
 jobs:
   deploy-worker:
     name: Deploy Worker
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
       
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: worker/package-lock.json
       
       - name: Install Worker dependencies
         working-directory: ./worker
-        run: npm install
+        run: npm ci
       
       - name: Deploy Worker
         working-directory: ./worker
         run: npx wrangler deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      
+      - name: Deployment status
+        if: success()
+        run: echo "✅ Worker deployment completed successfully"
+      
+      - name: Deployment failed
+        if: failure()
+        run: echo "❌ Worker deployment failed"
 
   deploy-frontend:
     name: Deploy Frontend
     runs-on: ubuntu-latest
     needs: deploy-worker
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
       
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
       
       - name: Create .env.production
         run: |
           echo "VITE_API_BASE_URL=${{ secrets.VITE_API_BASE_URL }}" > .env.production
           echo "VITE_ADMIN_API_KEY=${{ secrets.VITE_ADMIN_API_KEY }}" >> .env.production
+          echo "VITE_LINE_LIFF_ID=${{ secrets.VITE_LINE_LIFF_ID }}" >> .env.production
+          echo "VITE_LINE_CHANNEL_ID=${{ secrets.VITE_LINE_CHANNEL_ID }}" >> .env.production
+          echo "✅ Environment variables created"
+      
+      - name: Verify environment variables
+        run: |
+          if [ -z "${{ secrets.VITE_API_BASE_URL }}" ]; then
+            echo "⚠️ Warning: VITE_API_BASE_URL is not set"
+          fi
+          if [ -z "${{ secrets.VITE_LINE_LIFF_ID }}" ]; then
+            echo "⚠️ Warning: VITE_LINE_LIFF_ID is not set"
+          fi
+          if [ -z "${{ secrets.VITE_LINE_CHANNEL_ID }}" ]; then
+            echo "⚠️ Warning: VITE_LINE_CHANNEL_ID is not set"
+          fi
       
       - name: Install dependencies
-        run: npm install
+        run: npm ci
       
       - name: Build
         run: npm run build
+      
+      - name: Verify build output
+        run: |
+          if [ ! -d "dist" ]; then
+            echo "❌ Build failed: dist directory not found"
+            exit 1
+          fi
+          echo "✅ Build output verified"
       
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/pages-action@v1
@@ -60,4 +110,13 @@ jobs:
           projectName: booking-manager
           directory: dist
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+          wranglerVersion: '3'
+      
+      - name: Deployment status
+        if: success()
+        run: echo "✅ Frontend deployment completed successfully"
+      
+      - name: Deployment failed
+        if: failure()
+        run: echo "❌ Frontend deployment failed"
 

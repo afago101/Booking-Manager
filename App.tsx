@@ -7,6 +7,7 @@ import AdminLoginPage from './pages/AdminLoginPage';
 import AdminDashboard from './pages/AdminDashboard';
 import LookupPage from './pages/LookupPage';
 import BenefitsPage from './pages/BenefitsPage';
+import LineBindSuccessPage from './pages/LineBindSuccessPage';
 import { Booking } from './types';
 import { LanguageProvider } from './contexts/LanguageContext';
 import { apiService } from './services/apiService';
@@ -32,6 +33,7 @@ const App: React.FC = () => {
           <Route path="/" element={<HomePage />} />
           <Route path="/booking" element={<BookingPage setLastBooking={setLastBooking} />} />
           <Route path="/confirmation" element={<ConfirmationPage booking={lastBooking} />} />
+          <Route path="/line-bind-success" element={<LineBindSuccessPage />} />
           <Route path="/lookup" element={<LookupPage />} />
           <Route path="/benefits" element={<BenefitsPage />} />
           <Route path="/admin/login" element={<AdminLoginPage onLoginSuccess={handleLoginSuccess} />} />

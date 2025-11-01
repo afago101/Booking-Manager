@@ -3,13 +3,15 @@
 export interface ServiceLog {
   id: string;
   timestamp: string;
-  service: string; // 'line', 'email', 'sheets', etc.
-  action: string; // 'oauth', 'verify', 'send', etc.
-  status: 'success' | 'error' | 'warning';
+  service: string; // 'line', 'email', 'sheets', 'frontend', etc.
+  action: string; // 'oauth', 'verify', 'send', 'liff_init', etc.
+  status: 'success' | 'error' | 'warning' | 'info';
   message: string;
   details?: any; // Additional details (error info, response data, etc.)
   duration?: number; // Response time in ms
   userId?: string; // LINE User ID or email
+  userAgent?: string; // Browser user agent (from frontend logs)
+  url?: string; // Page URL (from frontend logs)
 }
 
 export class ServiceLogger {
@@ -35,13 +37,15 @@ export class ServiceLogger {
     }
 
     // Also log to console for debugging
-    const logLevel = log.status === 'error' ? 'error' : log.status === 'warning' ? 'warn' : 'log';
+    const logLevel = log.status === 'error' ? 'error' : log.status === 'warning' ? 'warn' : log.status === 'info' ? 'info' : 'log';
     console[logLevel](`[${log.service.toUpperCase()}] ${log.action}:`, {
       status: log.status,
       message: log.message,
       ...(log.details && { details: log.details }),
       ...(log.duration && { duration: `${log.duration}ms` }),
       ...(log.userId && { userId: log.userId }),
+      ...(log.userAgent && { userAgent: log.userAgent }),
+      ...(log.url && { url: log.url }),
     });
   }
 
@@ -50,7 +54,7 @@ export class ServiceLogger {
    */
   getLogs(options?: {
     service?: string;
-    status?: 'success' | 'error' | 'warning';
+    status?: 'success' | 'error' | 'warning' | 'info';
     limit?: number;
     since?: string; // ISO timestamp
   }): ServiceLog[] {

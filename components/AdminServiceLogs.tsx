@@ -118,6 +118,8 @@ const AdminServiceLogs: React.FC = () => {
         return 'bg-blue-100 text-blue-800';
       case 'email':
         return 'bg-purple-100 text-purple-800';
+      case 'frontend':
+        return 'bg-green-100 text-green-800';
       default:
         return 'bg-gray-100 text-gray-800';
     }
@@ -164,18 +166,22 @@ const AdminServiceLogs: React.FC = () => {
 
       {/* 摘要統計 */}
       {summary && (
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
           <div className="bg-white p-4 rounded-lg shadow border border-gray-200">
             <div className="text-sm text-gray-600">總日誌數</div>
             <div className="text-2xl font-bold text-gray-800">{summary.total}</div>
           </div>
-          <div className="bg-white p-4 rounded-lg shadow border border-gray-200">
+            <div className="bg-white p-4 rounded-lg shadow border border-gray-200">
             <div className="text-sm text-gray-600">LINE 服務</div>
             <div className="text-2xl font-bold text-blue-600">{summary.byService.line || 0}</div>
           </div>
           <div className="bg-white p-4 rounded-lg shadow border border-gray-200">
             <div className="text-sm text-gray-600">Email 服務</div>
             <div className="text-2xl font-bold text-purple-600">{summary.byService.email || 0}</div>
+          </div>
+          <div className="bg-white p-4 rounded-lg shadow border border-gray-200">
+            <div className="text-sm text-gray-600">前端日誌</div>
+            <div className="text-2xl font-bold text-green-600">{summary.byService.frontend || 0}</div>
           </div>
           <div className="bg-white p-4 rounded-lg shadow border border-gray-200">
             <div className="text-sm text-gray-600">錯誤數量</div>
@@ -197,6 +203,7 @@ const AdminServiceLogs: React.FC = () => {
               <option value="">全部</option>
               <option value="line">LINE</option>
               <option value="email">Email</option>
+              <option value="frontend">前端</option>
             </select>
           </div>
           <div>
@@ -210,6 +217,7 @@ const AdminServiceLogs: React.FC = () => {
               <option value="success">成功</option>
               <option value="error">錯誤</option>
               <option value="warning">警告</option>
+              <option value="info">資訊</option>
             </select>
           </div>
           <div>

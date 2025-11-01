@@ -372,7 +372,7 @@ export async function handleCreateBooking(c: Context): Promise<Response> {
     }
 
     // 分離成兩道任務：1) 立即通知管理者 2) 延時 3 秒寄給客戶
-    const adminUrl = 'https://blessing-haven.marcux.uk/#/admin/login';
+    const adminUrl = 'https://blessing-haven.marcux.uk/admin/login';
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
     // 任務 1：立即通知管理者（內部自行抓設定）

@@ -11,7 +11,7 @@ import { errorResponse } from '../utils/helpers';
 export async function handleGetLogs(c: Context): Promise<Response> {
   try {
     const service = c.req.query('service'); // 'line', 'email', etc.
-    const status = c.req.query('status') as 'success' | 'error' | 'warning' | undefined;
+    const status = c.req.query('status') as 'success' | 'error' | 'warning' | 'info' | undefined;
     const limit = c.req.query('limit') ? parseInt(c.req.query('limit')!) : undefined;
     const since = c.req.query('since'); // ISO timestamp
 

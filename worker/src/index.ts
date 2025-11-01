@@ -41,6 +41,9 @@ import {
   handleExportLogs,
   handleClearLogs,
 } from './handlers/logs';
+import {
+  handleReceiveFrontendLogs,
+} from './handlers/frontendLogs';
 import { errorResponse } from './utils/helpers';
 
 const app = new Hono<{ Bindings: Env }>();
@@ -125,6 +128,9 @@ app.get('/api/admin/logs', handleGetLogs);
 app.get('/api/admin/logs/summary', handleGetLogsSummary);
 app.get('/api/admin/logs/export', handleExportLogs);
 app.delete('/api/admin/logs', handleClearLogs);
+
+// Frontend logs (public endpoint, but logs will be stored)
+app.post('/api/admin/logs/frontend', handleReceiveFrontendLogs);
 
 // === INITIALIZATION ENDPOINT ===
 

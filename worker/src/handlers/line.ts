@@ -98,6 +98,7 @@ export async function handleLineOAuthCallback(c: Context): Promise<Response> {
 
     const tokenData = await tokenResponse.json();
     const accessToken = tokenData.access_token;
+    const idToken = tokenData.id_token; // ✅ 修正：取得 idToken 以獲得真正的 LINE User ID
 
     if (!accessToken) {
       serviceLogger.log({
@@ -110,7 +111,59 @@ export async function handleLineOAuthCallback(c: Context): Promise<Response> {
       return errorResponse('No access_token in response', 'INTERNAL_ERROR', 500);
     }
 
-    // 使用 access token 取得使用者資料（不使用 id_token）
+    let lineUserId: string;
+    let userName: string;
+    let userPicture: string | undefined;
+
+    // ✅ 修正：優先使用 idToken 取得真正的 LINE User ID
+    if (idToken) {
+      try {
+        const verifyResponse = await fetch('https://api.line.me/oauth2/v2.1/verify', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: new URLSearchParams({
+            id_token: idToken,
+            client_id: lineChannelId,
+          }),
+        });
+
+        if (verifyResponse.ok) {
+          const lineUser = await verifyResponse.json();
+          lineUserId = lineUser.sub; // ✅ 真正的 LINE User ID
+          userName = lineUser.name || '';
+          userPicture = lineUser.picture;
+          
+          serviceLogger.log({
+            service: 'line',
+            action: 'oauth_callback',
+            status: 'success',
+            message: 'OAuth callback completed with idToken verification',
+            duration: Date.now() - startTime,
+            userId: lineUserId,
+            details: {
+              name: userName,
+              hasPicture: !!userPicture,
+              usedIdToken: true,
+            },
+          });
+
+          return c.json({
+            accessToken,
+            idToken, // ✅ 也返回 idToken 供前端使用
+            lineUserId, // ✅ 真正的 LINE User ID
+            name: userName,
+            picture: userPicture,
+          });
+        }
+      } catch (verifyError) {
+        console.warn('Failed to verify idToken, falling back to accessToken:', verifyError);
+        // 繼續使用 accessToken 方式
+      }
+    }
+
+    // 如果沒有 idToken 或驗證失敗，使用 access token 取得使用者資料（向後兼容）
     const profileResponse = await fetch('https://api.line.me/v2/profile', {
       headers: {
         'Authorization': `Bearer ${accessToken}`,
@@ -138,21 +191,21 @@ export async function handleLineOAuthCallback(c: Context): Promise<Response> {
       service: 'line',
       action: 'oauth_callback',
       status: 'success',
-      message: 'OAuth callback completed successfully',
+      message: 'OAuth callback completed successfully (using accessToken)',
       duration,
       userId: lineUser.userId,
       details: {
         name: lineUser.displayName,
         hasPicture: !!lineUser.pictureUrl,
+        usedIdToken: false,
+        warning: 'Using LINE Login userId, not true LINE User ID',
       },
     });
 
-    // 返回 access token 和 user info
-    // 注意：lineUser.userId 是 LINE Login 的 userId，與 LINE 平台的 userId 可能不同
-    // 如果在 LINE 環境中使用 LIFF，會取得真正的 LINE User ID
+    // ⚠️ 注意：如果沒有 idToken，lineUser.userId 是 LINE Login 的 userId，與 LINE 平台的 userId 可能不同
     return c.json({
-      accessToken, // 改為返回 accessToken 而不是 idToken
-      lineUserId: lineUser.userId, // LINE Login 的 userId
+      accessToken,
+      lineUserId: lineUser.userId, // LINE Login 的 userId（向後兼容）
       name: lineUser.displayName,
       picture: lineUser.pictureUrl,
     });

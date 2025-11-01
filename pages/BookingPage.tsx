@@ -1,13 +1,14 @@
 // pages/BookingPage.tsx
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { Booking, DailyPrices, BookingFormData, Coupon } from '../types';
 import { apiService } from '../services/apiService';
 import BookingPriceCalendar from '../components/BookingPriceCalendar';
 import HeaderMenu from '../components/HeaderMenu';
 import { useTranslations } from '../contexts/LanguageContext';
 import { getLineProfile, isInLine, initLineLogin } from '../utils/lineLogin';
+import { frontendLogger } from '../utils/frontendLogger';
 
 interface BookingPageProps {
   setLastBooking: (booking: Booking) => void;
@@ -56,6 +57,7 @@ const BookingPage: React.FC<BookingPageProps> = ({ setLastBooking }) => {
   const [selectedCouponCode, setSelectedCouponCode] = useState<string | null>(null);
   const [loadingCoupons, setLoadingCoupons] = useState(false);
   const [syncProfileStatus, setSyncProfileStatus] = useState<'idle' | 'syncing' | 'success' | 'error'>('idle');
+  const [showLineInfoModal, setShowLineInfoModal] = useState(false); // ✅ 新增：LIFF 彈窗提醒
 
   useEffect(() => {
     const fetchData = async () => {
@@ -128,6 +130,7 @@ const BookingPage: React.FC<BookingPageProps> = ({ setLastBooking }) => {
   }, []);
 
   // 處理 LINE OAuth callback（從 URL 參數取得 code）
+  // ✅ 修正：只有在 LINE 環境中才處理 OAuth callback，一般瀏覽器不應該處理
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const code = urlParams.get('code');
@@ -139,7 +142,47 @@ const BookingPage: React.FC<BookingPageProps> = ({ setLastBooking }) => {
       currentUrl: window.location.href,
     });
     
+    // ✅ 修正：如果沒有 code 和 state，不執行任何 LINE 相關操作
+    if (!code || !state) {
+      return;
+    }
+    
+    // ✅ 修正：檢查是否在 LINE 環境中（userAgent 檢查）
+    const userAgent = navigator.userAgent || '';
+    const hasLineUserAgent = userAgent.includes('Line') || userAgent.includes('LINE');
+    
+    if (!hasLineUserAgent) {
+      // 一般瀏覽器不應該有 OAuth callback（可能是誤觸）
+      console.log('[BookingPage] OAuth callback detected but not in LINE environment, clearing URL params');
+      // 清除 URL 參數，但不執行 LINE 登入
+      const cleanUrl = window.location.pathname;
+      window.history.replaceState({}, '', cleanUrl);
+      return;
+    }
+    
+    // ✅ 記錄到後台監測
+    frontendLogger.log({
+      service: 'line',
+      action: 'oauth_callback_detected',
+      status: 'info',
+      message: 'OAuth callback detected on booking page (LINE environment)',
+      details: {
+        hasCode: !!code,
+        hasState: !!state,
+        url: window.location.href,
+        inLineEnv: true,
+      },
+    });
+    
     if (code && state) {
+      // ✅ 修正：使用 sessionStorage 標記防止重複處理
+      const processingKey = `oauth_processing_${state}`;
+      if (sessionStorage.getItem(processingKey)) {
+        console.log('[BookingPage] OAuth callback already processing, skipping...');
+        return;
+      }
+      sessionStorage.setItem(processingKey, 'true');
+      
       console.log('[BookingPage] Processing OAuth callback...');
       
       // 處理 OAuth callback
@@ -150,55 +193,118 @@ const BookingPage: React.FC<BookingPageProps> = ({ setLastBooking }) => {
         console.log('[BookingPage] Callback completed, token:', !!token);
         
         if (token) {
-          console.log('[BookingPage] Verifying token...');
-          // 驗證 token 並取得 UID（token 可能是 accessToken 或 idToken）
-          const result = await apiService.verifyLineToken(token);
-          console.log('[BookingPage] Token verified, LINE User ID:', result.lineUserId);
-          
-          setLineUserId(result.lineUserId);
-          setLineUserInfo({ name: result.name, picture: result.picture });
-          localStorage.setItem('lineUserId', result.lineUserId);
-          
-          // 同步客戶資料到 Sheets
-          console.log('[BookingPage] Syncing customer profile...');
-          await syncCustomerProfile(result.lineUserId, result.name, result.picture);
-          
-          // 載入優惠券
-          console.log('[BookingPage] Loading coupons...');
-          loadCoupons(result.lineUserId);
-          // URL 參數已在 handleLineOAuthCallback 中清除並恢復到原路徑
-          
-          console.log('[BookingPage] OAuth callback processing completed successfully');
+          try {
+            console.log('[BookingPage] Verifying token...');
+            // 驗證 token 並取得 UID（token 可能是 accessToken 或 idToken）
+            const result = await apiService.verifyLineToken(token);
+            console.log('[BookingPage] Token verified, LINE User ID:', result.lineUserId);
+            
+            // ✅ 修正：先更新狀態，再清除 URL
+            setLineUserId(result.lineUserId);
+            setLineUserInfo({ name: result.name, picture: result.picture });
+            localStorage.setItem('lineUserId', result.lineUserId);
+            
+            // ✅ 記錄到後台監測
+            frontendLogger.log({
+              service: 'line',
+              action: 'booking_page_login_success',
+              status: 'success',
+              message: 'LINE login successful on booking page',
+              userId: result.lineUserId,
+              details: {
+                name: result.name,
+                hasPicture: !!result.picture,
+              },
+            });
+            
+            // 同步客戶資料到 Sheets
+            console.log('[BookingPage] Syncing customer profile...');
+            await syncCustomerProfile(result.lineUserId, result.name, result.picture);
+            
+            // 載入優惠券
+            console.log('[BookingPage] Loading coupons...');
+            loadCoupons(result.lineUserId);
+            
+            // ✅ 修正：在處理完所有狀態後再清除 URL（使用 React Router 的方式）
+            const returnPath = sessionStorage.getItem('line_oauth_return_path') || '/booking';
+            sessionStorage.removeItem('line_oauth_return_path');
+            sessionStorage.removeItem('line_oauth_redirect_uri');
+            
+            // 使用 setTimeout 確保狀態更新完成後再清除 URL
+            setTimeout(() => {
+              window.history.replaceState({}, '', returnPath);
+              // 使用 navigate 更新 React Router 狀態（但不重新載入）
+              navigate(returnPath, { replace: true });
+            }, 100);
+            
+            console.log('[BookingPage] OAuth callback processing completed successfully');
+          } catch (err) {
+            console.error('[BookingPage] Error processing token:', err);
+            setSyncProfileStatus('error');
+            sessionStorage.removeItem(processingKey); // 失敗時清除標記
+          }
         } else {
           console.warn('[BookingPage] OAuth callback returned null token');
           setSyncProfileStatus('error');
+          sessionStorage.removeItem(processingKey); // 失敗時清除標記
         }
       }).catch((err) => {
         console.error('[BookingPage] Error handling OAuth callback:', err);
         setSyncProfileStatus('error');
+        sessionStorage.removeItem(processingKey); // 錯誤時清除標記
       });
       return;
     }
 
-    // 載入 LINE 使用者資訊（如果在 LINE 環境中）
+    // 載入 LINE 使用者資訊（僅在真正的 LIFF 環境中）
     const loadLineUser = async () => {
-      // 先檢查是否在 LINE 環境中（使用 userAgent，不依賴 LIFF）
+      // ✅ 修正：先檢查 userAgent，如果包含 LINE 才初始化 LIFF
       const userAgent = navigator.userAgent || '';
-      const inLineEnv = userAgent.includes('Line') || userAgent.includes('LINE');
+      const hasLineUserAgent = userAgent.includes('Line') || userAgent.includes('LINE');
       
-      console.log('[BookingPage] Loading LINE user, inLineEnv:', inLineEnv);
+      console.log('[BookingPage] Loading LINE user check:', { 
+        hasLineUserAgent,
+        userAgent: userAgent.substring(0, 100),
+      });
       
-      if (inLineEnv) {
-        try {
-          console.log('[BookingPage] Initializing LIFF...');
-          // 初始化 LIFF
-          await initLineLogin();
-          
-          // 等待更長時間讓 LIFF 完全初始化
-          await new Promise(resolve => setTimeout(resolve, 1000));
-          
-          console.log('[BookingPage] Getting LINE profile...');
-          // 嘗試取得 LINE 使用者資訊
+      // ✅ 記錄到後台監測
+      frontendLogger.log({
+        service: 'line',
+        action: 'booking_page_line_check',
+        status: 'info',
+        message: 'Checking LINE environment on booking page',
+        details: {
+          hasLineUserAgent,
+          userAgent: userAgent.substring(0, 100),
+        },
+      });
+      
+      // 如果 userAgent 不包含 LINE，肯定不是 LINE 環境，不執行任何 LINE 相關操作
+      if (!hasLineUserAgent) {
+        console.log('[BookingPage] Not in LINE environment (userAgent check)');
+        // ✅ 修正：一般瀏覽器不自動獲取 LINE UID，也不使用 localStorage 的 lineUserId
+        // 用戶可以透過確認頁的綁定按鈕來綁定 LINE 帳號
+        return;
+      }
+      
+      // userAgent 包含 LINE，嘗試初始化 LIFF
+      try {
+        console.log('[BookingPage] UserAgent contains LINE, initializing LIFF...');
+        // 初始化 LIFF
+        await initLineLogin();
+        
+        // 等待 LIFF 完全初始化
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        
+        // ✅ 修正：使用 isInLine() 嚴格判斷是否在真正的 LIFF 環境
+        // isInLine() 會檢查 window.liff.isInClient() === true
+        const isReallyInLine = isInLine();
+        
+        console.log('[BookingPage] LIFF initialized, isReallyInLine:', isReallyInLine);
+        
+        // ✅ 只有確認在真正的 LIFF 環境中才獲取 LINE UID
+        if (isReallyInLine) {
+          console.log('[BookingPage] Confirmed in LIFF environment, getting LINE profile...');
           const lineUser = await getLineProfile();
           
           if (lineUser && lineUser.lineUserId) {
@@ -212,37 +318,75 @@ const BookingPage: React.FC<BookingPageProps> = ({ setLastBooking }) => {
             setLineUserInfo({ name: lineUser.name, picture: lineUser.picture });
             localStorage.setItem('lineUserId', lineUser.lineUserId);
             
+            // ✅ 記錄到後台監測
+            frontendLogger.log({
+              service: 'line',
+              action: 'booking_page_liff_success',
+              status: 'success',
+              message: 'LINE user loaded successfully via LIFF on booking page',
+              userId: lineUser.lineUserId,
+              details: {
+                name: lineUser.name,
+                hasPicture: !!lineUser.picture,
+              },
+            });
+            
             // 同步客戶資料到 Sheets（確保 LINE UID 正確記錄）
             console.log('[BookingPage] Syncing customer profile to Sheets...');
             try {
               await syncCustomerProfile(lineUser.lineUserId, lineUser.name, lineUser.picture);
               console.log('[BookingPage] Customer profile synced successfully');
+              frontendLogger.log({
+                service: 'line',
+                action: 'booking_page_profile_synced',
+                status: 'success',
+                message: 'Customer profile synced to Sheets',
+                userId: lineUser.lineUserId,
+              });
             } catch (syncErr) {
               console.error('[BookingPage] Error syncing customer profile:', syncErr);
               setSyncProfileStatus('error');
+              frontendLogger.log({
+                service: 'line',
+                action: 'booking_page_profile_sync_failed',
+                status: 'error',
+                message: 'Failed to sync customer profile',
+                userId: lineUser.lineUserId,
+                details: {
+                  error: syncErr instanceof Error ? syncErr.message : String(syncErr),
+                },
+              });
             }
             
             // 載入優惠券
             loadCoupons(lineUser.lineUserId);
+            
+            // ✅ 新增：顯示 LIFF 進入提醒彈窗
+            setShowLineInfoModal(true);
           } else {
             // 如果 getLineProfile 返回 null，可能是因為：
             // 1. 未登入（已觸發自動登入，等待重新載入）
-            // 2. LIFF 初始化失敗（使用 OAuth 流程）
+            // 2. LIFF 初始化失敗
             console.log('[BookingPage] LINE user not logged in or LIFF not available, waiting for login...');
           }
-        } catch (err) {
-          console.error('[BookingPage] Error loading LINE user:', err);
-          setSyncProfileStatus('error');
+        } else {
+          // ✅ 修正：雖然 userAgent 包含 LINE，但不是真正的 LIFF 環境
+          // 可能是從 LINE App 打開，但 LIFF 初始化失敗或不支援
+          console.log('[BookingPage] UserAgent contains LINE but not in true LIFF environment, skipping auto-login');
+          console.log('[BookingPage] User can bind LINE account later on confirmation page');
         }
-      } else {
-        console.log('[BookingPage] Not in LINE environment');
-        // 不在 LINE 環境中，檢查 localStorage 是否有保存的 lineUserId
-        const savedUserId = localStorage.getItem('lineUserId');
-        if (savedUserId) {
-          console.log('[BookingPage] Using saved lineUserId from localStorage');
-          setLineUserId(savedUserId);
-          loadCoupons(savedUserId);
-        }
+      } catch (err) {
+        console.error('[BookingPage] Error loading LINE user:', err);
+        setSyncProfileStatus('error');
+        frontendLogger.log({
+          service: 'line',
+          action: 'booking_page_line_load_error',
+          status: 'error',
+          message: 'Error loading LINE user',
+          details: {
+            error: err instanceof Error ? err.message : String(err),
+          },
+        });
       }
     };
     loadLineUser();
@@ -653,6 +797,66 @@ const BookingPage: React.FC<BookingPageProps> = ({ setLastBooking }) => {
         </form>
         </div>
       </div>
+      
+      {/* ✅ 新增：LIFF 進入提醒彈窗 */}
+      {showLineInfoModal && lineUserInfo && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 space-y-4">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                {lineUserInfo.picture && (
+                  <img 
+                    src={lineUserInfo.picture} 
+                    alt="LINE" 
+                    className="w-12 h-12 rounded-full border-2 border-green-300" 
+                  />
+                )}
+                <div>
+                  <h3 className="text-lg font-bold text-gray-800">✅ LINE 訊息已獲取</h3>
+                  {lineUserInfo.name && (
+                    <p className="text-sm text-gray-600">歡迎，{lineUserInfo.name}！</p>
+                  )}
+                </div>
+              </div>
+              <button
+                onClick={() => setShowLineInfoModal(false)}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            
+            <div className="bg-green-50 border-l-4 border-green-500 p-4 rounded">
+              <p className="text-sm text-green-800 font-medium mb-2">
+                🎉 已自動取得您的 LINE 資訊
+              </p>
+              <ul className="text-sm text-green-700 space-y-1">
+                <li>• 已自動綁定 LINE 帳號</li>
+                <li>• 會員資料已同步建立</li>
+                <li>• 可立即使用常客優惠券</li>
+              </ul>
+            </div>
+            
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowLineInfoModal(false)}
+                className="flex-1 py-2 px-4 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium"
+              >
+                我知道了
+              </button>
+              <Link
+                to="/benefits"
+                onClick={() => setShowLineInfoModal(false)}
+                className="flex-1 py-2 px-4 border-2 border-green-600 text-green-700 rounded-lg hover:bg-green-50 transition-colors font-medium text-center"
+              >
+                查看優惠券
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
