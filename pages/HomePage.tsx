@@ -141,7 +141,7 @@ const HomePage: React.FC = () => {
               <div className="relative w-full h-96 rounded-xl shadow-xl overflow-hidden">
                 <img
                   src={galleryImages[currentImageIndex]}
-                  alt="頭城海灘近滿山望海海景房"
+                  alt={`Blessing Haven Space ${currentImageIndex + 1} - 頭城海灘近滿山望海海景房`}
                   className="w-full h-full object-cover"
                 />
                 

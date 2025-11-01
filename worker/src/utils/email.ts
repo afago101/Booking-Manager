@@ -1,7 +1,5 @@
 // Email notification utilities
 
-import { serviceLogger } from './logger';
-
 export interface EmailConfig {
   apiKey: string;
   fromEmail: string;
@@ -19,7 +17,6 @@ export interface BookingNotificationData {
   numberOfGuests: number;
   totalPrice: number;
   createdAt: string;
-  viewUrl?: string;
 }
 
 /**
@@ -37,166 +34,57 @@ export async function sendBookingNotification(
   }
 
   try {
+    console.log('📧 Generating email content...');
     const emailHtml = generateBookingEmailHtml(bookingData);
     const emailText = generateBookingEmailText(bookingData);
+    console.log('📧 Email content generated successfully');
 
-    // 依序寄送，並在每封之間加入短暫延時，避免觸發 Resend 2 rps 的速率限制
-    const results: Array<{ email: string; success: boolean }> = [];
-    for (const email of toEmails) {
-      let attempt = 0;
-      let sent = false;
-      let lastError: any = null;
+    // 一次性發送給所有收件人（Resend API 支援在 to 欄位中使用陣列）
+    console.log(`📧 Sending notification email to ${toEmails.length} recipients: ${toEmails.join(', ')}`);
+    
+    const emailPayload = {
+      from: `${config.fromName} <${config.fromEmail}>`,
+      to: toEmails, // 一次性發送給所有收件人（陣列格式）
+      subject: `🎉 新訂單通知 - ${bookingData.guestName}`,
+      html: emailHtml,
+      text: emailText,
+    };
 
-      while (attempt < 3 && !sent) {
-        attempt++;
-        const emailStartTime = Date.now();
-        try {
-          const response = await fetch('https://api.resend.com/emails', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${config.apiKey}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              from: `${config.fromName} <${config.fromEmail}>`,
-              to: email,
-              subject: `🎉 新訂單通知 - ${bookingData.guestName}`,
-              html: emailHtml,
-              text: emailText,
-            }),
-          });
-          
-          if (response.ok) {
-            const emailDuration = Date.now() - emailStartTime;
-            const responseData = await response.json();
-            
-            serviceLogger.log({
-              service: 'email',
-              action: 'send_notification',
-              status: 'success',
-              message: `Booking notification email sent to ${email}`,
-              duration: emailDuration,
-              userId: email,
-              details: {
-                bookingId: bookingData.bookingId,
-                guestName: bookingData.guestName,
-                emailId: responseData.id,
-              },
-            });
-            
-            console.log(`Booking notification email sent successfully to ${email}`);
-            results.push({ email, success: true });
-            sent = true;
-            break;
-          }
+    console.log('📧 Email payload:', {
+      from: emailPayload.from,
+      to: emailPayload.to,
+      subject: emailPayload.subject,
+      htmlLength: emailHtml.length,
+      textLength: emailText.length,
+    });
+    
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${config.apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(emailPayload),
+    });
 
-          const errorText = await response.text();
-          const emailDuration = Date.now() - emailStartTime;
-          
-          // 若 429，採用簡單退避重試
-          if (response.status === 429) {
-            const backoffMs = attempt * 1000; // 1s, 2s, 3s
-            
-            serviceLogger.log({
-              service: 'email',
-              action: 'send_notification',
-              status: 'warning',
-              message: `Rate limit (429) when sending to ${email}, retrying in ${backoffMs}ms`,
-              duration: emailDuration,
-              userId: email,
-              details: {
-                attempt,
-                bookingId: bookingData.bookingId,
-              },
-            });
-            
-            console.warn(`Resend rate limit (429) when sending to ${email}. Retrying in ${backoffMs}ms...`);
-            await new Promise((r) => setTimeout(r, backoffMs));
-            continue;
-          }
-
-          serviceLogger.log({
-            service: 'email',
-            action: 'send_notification',
-            status: 'error',
-            message: `Email send failed to ${email}`,
-            duration: emailDuration,
-            userId: email,
-            details: {
-              status: response.status,
-              error: errorText,
-              attempt,
-              bookingId: bookingData.bookingId,
-            },
-          });
-          
-          console.error(`Email send failed to ${email}:`, errorText);
-          results.push({ email, success: false });
-          sent = false;
-          break;
-        } catch (error) {
-          lastError = error;
-          
-          serviceLogger.log({
-            service: 'email',
-            action: 'send_notification',
-            status: 'error',
-            message: `Error sending email to ${email} (attempt ${attempt})`,
-            userId: email,
-            details: {
-              attempt,
-              error: error instanceof Error ? error.message : String(error),
-              bookingId: bookingData.bookingId,
-            },
-          });
-          
-          console.error(`Error sending email to ${email} (attempt ${attempt}):`, error);
-          const backoffMs = attempt * 1000; // 1s, 2s, 3s
-          await new Promise((r) => setTimeout(r, backoffMs));
-        }
-      }
-
-      if (!sent) {
-        results.push({ email, success: false });
-        if (lastError) {
-          console.error(`Giving up sending to ${email} after ${attempt} attempts. Last error:`, lastError);
-        }
-      }
-
-      // 在每封之間暫停 600ms，避免峰值超過 2 req/s
-      await new Promise((r) => setTimeout(r, 600));
+    console.log('📧 API response status:', response.status);
+    const responseData = await response.json().catch(() => null);
+    console.log('📧 API response data:', responseData);
+    
+    if (!response.ok) {
+      const errorMsg = responseData?.message || await response.text().catch(() => 'Unknown error');
+      console.error(`❌ Email send failed:`, response.status, errorMsg);
+      return false;
     }
 
-    const successCount = results.filter(r => r.success).length;
+    console.log(`✅ Email notification sent successfully to all ${toEmails.length} recipients`);
+    if (responseData?.id) {
+      console.log(`Email ID: ${responseData.id}`);
+    }
     
-    serviceLogger.log({
-      service: 'email',
-      action: 'send_notification',
-      status: successCount > 0 ? 'success' : 'error',
-      message: `Sent ${successCount}/${toEmails.length} notification emails`,
-      details: {
-        bookingId: bookingData.bookingId,
-        totalRecipients: toEmails.length,
-        successCount,
-        failedCount: toEmails.length - successCount,
-      },
-    });
-    
-    console.log(`Sent ${successCount}/${toEmails.length} emails successfully`);
-    return successCount > 0;
+    return true;
   } catch (error) {
-    serviceLogger.log({
-      service: 'email',
-      action: 'send_notification',
-      status: 'error',
-      message: 'Error in sendBookingNotification',
-      details: {
-        error: error instanceof Error ? error.message : String(error),
-        bookingId: bookingData.bookingId,
-      },
-    });
-    
-    console.error('Error sending email:', error);
+    console.error('❌ Error sending email:', error);
     return false;
   }
 }
@@ -230,6 +118,10 @@ function generateBookingEmailHtml(data: BookingNotificationData): string {
     <div class="content">
       <div class="booking-info">
         <div class="info-row">
+          <div class="info-label">訂單編號：</div>
+          <div class="info-value">${data.bookingId}</div>
+        </div>
+        <div class="info-row">
           <div class="info-label">客人姓名：</div>
           <div class="info-value">${data.guestName}</div>
         </div>
@@ -261,11 +153,6 @@ function generateBookingEmailHtml(data: BookingNotificationData): string {
       <div class="price">
         總金額：NT$ ${data.totalPrice.toLocaleString()}
       </div>
-      ${data.viewUrl ? `
-      <div style="text-align:center; margin: 24px 0;">
-        <a href="${data.viewUrl}" style="display:inline-block; background:#3b82f6; color:#fff; text-decoration:none; padding:12px 20px; border-radius:8px; font-weight:bold;">🔎 查閱訂單</a>
-      </div>
-      ` : ''}
       <p style="text-align: center; color: #666;">
         請儘快聯繫客人確認訂單詳情
       </p>
@@ -287,6 +174,7 @@ function generateBookingEmailText(data: BookingNotificationData): string {
 
 訂單資訊：
 --------------
+訂單編號：${data.bookingId}
 客人姓名：${data.guestName}
 聯絡電話：${data.contactPhone}
 LINE ID：${data.lineName}
@@ -296,7 +184,7 @@ LINE ID：${data.lineName}
 總金額：NT$ ${data.totalPrice.toLocaleString()}
 訂單時間：${new Date(data.createdAt).toLocaleString('zh-TW')}
 
-${data.viewUrl ? `查閱訂單：${data.viewUrl}\n\n` : ''}請儘快聯繫客人確認訂單詳情。
+請儘快聯繫客人確認訂單詳情。
 
 ---
 此為系統自動發送的通知郵件，請勿直接回覆
@@ -382,6 +270,10 @@ function generateCustomerConfirmationHtml(data: BookingNotificationData): string
       
       <div class="booking-info">
         <div class="info-row">
+          <div class="info-label">訂單編號：</div>
+          <div class="info-value">${data.bookingId}</div>
+        </div>
+        <div class="info-row">
           <div class="info-label">入住日期：</div>
           <div class="info-value">${data.checkInDate}</div>
         </div>
@@ -403,28 +295,12 @@ function generateCustomerConfirmationHtml(data: BookingNotificationData): string
         總金額：NT$ ${data.totalPrice.toLocaleString()}
       </div>
       
-      <div class="booking-info">
-        <h3 style="margin-top: 0; color: #0f766e;">📌 入住提醒事項</h3>
-        <ul style="margin: 8px 0 0 20px; color: #444;">
-          <li>入住時間 14:30 後，退房時間 11:00 前。</li>
-          <li>室內全面禁菸，請保持空間整潔。</li>
-          <li>為維護寧靜，請晚上九點後輕聲細語。</li>
-          <li>攜帶孩童請注意安全，勿於陽台攀爬或奔跑。</li>
-          <li>請愛護室內家具與設備，若有損害需照價賠償。</li>
-          <li>若有人詢問是否為住戶，請回答是房主親友，並保護個資勿透漏住址。</li>
-        </ul>
-      </div>
-
       <div class="payment-info">
         <h3 style="margin-top: 0; color: #d97706;">💰 付款資訊</h3>
         <p style="margin: 8px 0;"><strong>金融機構：</strong> 951</p>
         <p style="margin: 8px 0;"><strong>銀行帳號：</strong> 59801119003897</p>
         <p style="margin: 15px 0 8px 0; color: #d97706;">⚠️ 請於三日內完成匯款</p>
         <p style="margin: 8px 0; font-size: 14px; color: #666;">完成匯款後，請傳送轉帳後五碼或截圖至 LINE 官方帳號</p>
-      </div>
-
-      <div style="text-align:center; margin: 24px 0;">
-        <a href="https://lin.ee/AIhqwPU1" style="display:inline-block; background:#22c55e; color:#fff; text-decoration:none; padding:12px 20px; border-radius:8px; font-weight:bold;">加入 LINE 收取最新消息</a>
       </div>
       
       <p style="text-align: center; color: #666; margin: 20px 0;">
@@ -453,23 +329,13 @@ function generateCustomerConfirmationText(data: BookingNotificationData): string
 
 訂單資訊：
 --------------
+訂單編號：${data.bookingId}
 入住日期：${data.checkInDate}
 退房日期：${data.checkOutDate}
 入住人數：${data.numberOfGuests} 人
 聯絡電話：${data.contactPhone}
 
 總金額：NT$ ${data.totalPrice.toLocaleString()}
-
-加入 LINE 收取最新消息：
-https://lin.ee/AIhqwPU1
-
-📌 入住提醒事項：
-- 入住時間 14:30 後，退房時間 11:00 前。
-- 室內全面禁菸，請保持空間整潔。
-- 為維護寧靜，請晚上九點後輕聲細語。
-- 攜帶孩童請注意安全，勿於陽台攀爬或奔跑。
-- 請愛護室內家具與設備，若有損害需照價賠償。
-- 若有人詢問是否為住戶，請回答是房主親友，並保護個資勿透漏住址。
 
 💰 付款資訊：
 金融機構：951
