@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import HomePage from './pages/HomePage';
 import BookingPage from './pages/BookingPage';
 import ConfirmationPage from './pages/ConfirmationPage';
 import AdminLoginPage from './pages/AdminLoginPage';
 import AdminDashboard from './pages/AdminDashboard';
 import LookupPage from './pages/LookupPage';
+import BenefitsPage from './pages/BenefitsPage';
 import { Booking } from './types';
 import { LanguageProvider } from './contexts/LanguageContext';
 import { apiService } from './services/apiService';
@@ -26,12 +27,13 @@ const App: React.FC = () => {
 
   return (
     <LanguageProvider>
-      <HashRouter>
+      <BrowserRouter>
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/booking" element={<BookingPage setLastBooking={setLastBooking} />} />
           <Route path="/confirmation" element={<ConfirmationPage booking={lastBooking} />} />
           <Route path="/lookup" element={<LookupPage />} />
+          <Route path="/benefits" element={<BenefitsPage />} />
           <Route path="/admin/login" element={<AdminLoginPage onLoginSuccess={handleLoginSuccess} />} />
           <Route 
             path="/admin/dashboard" 
@@ -45,7 +47,7 @@ const App: React.FC = () => {
           />
           <Route path="/admin" element={<Navigate to="/admin/login" replace />} />
         </Routes>
-      </HashRouter>
+      </BrowserRouter>
     </LanguageProvider>
   );
 };

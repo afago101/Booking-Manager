@@ -11,6 +11,8 @@ import {
   Setting,
   Inventory,
   ApiError,
+  CustomerProfile,
+  Coupon,
 } from '../types';
 
 // Base URL for API - can be configured via environment variable
@@ -269,6 +271,168 @@ class ApiService {
     }
     
     return settings;
+  }
+
+  // === LINE ENDPOINTS ===
+
+  async verifyLineToken(token: string): Promise<{ lineUserId: string; name?: string; picture?: string }> {
+    // token 可能是 idToken (LIFF) 或 accessToken (OAuth)
+    // 後端會自動判斷
+    const body: { idToken?: string; accessToken?: string } = {};
+    // 簡單判斷：如果很長且包含點號，可能是 idToken；否則可能是 accessToken
+    if (token.includes('.')) {
+      body.idToken = token;
+    } else {
+      body.accessToken = token;
+    }
+    
+    return this.fetchAPI<{ lineUserId: string; name?: string; picture?: string }>('/line/verify', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  }
+
+  async getCustomerProfile(lineUserId: string): Promise<CustomerProfile> {
+    return this.fetchAPI<CustomerProfile>(`/line/profile/${lineUserId}`);
+  }
+
+  async syncCustomerProfile(lineUserId: string, name?: string, picture?: string, guestName?: string, contactPhone?: string, email?: string): Promise<{
+    success: boolean;
+    profile: CustomerProfile;
+    message: string;
+  }> {
+    return this.fetchAPI<{
+      success: boolean;
+      profile: CustomerProfile;
+      message: string;
+    }>('/line/sync-profile', {
+      method: 'POST',
+      body: JSON.stringify({ lineUserId, name, picture, guestName, contactPhone, email }),
+    });
+  }
+
+  async bindBooking(bookingId: string, lineUserId: string, guestName?: string, contactPhone?: string, email?: string): Promise<{
+    success: boolean;
+    booking: Booking;
+    profile: CustomerProfile;
+  }> {
+    return this.fetchAPI<{
+      success: boolean;
+      booking: Booking;
+      profile: CustomerProfile;
+    }>('/line/bind-booking', {
+      method: 'POST',
+      body: JSON.stringify({ bookingId, lineUserId, guestName, contactPhone, email }),
+    });
+  }
+
+  async getCustomerCoupons(lineUserId: string): Promise<Coupon[]> {
+    return this.fetchAPI<Coupon[]>(`/line/coupons/${lineUserId}`);
+  }
+
+  async getCustomerBookings(lineUserId: string): Promise<Booking[]> {
+    return this.fetchAPI<Booking[]>(`/line/bookings/${lineUserId}`);
+  }
+
+  async applyCoupon(couponCode: string, checkInDate: string, checkOutDate: string, lineUserId: string): Promise<{
+    valid: boolean;
+    coupon: {
+      code: string;
+      type: string;
+      value: number;
+      minNights?: number;
+    };
+  }> {
+    return this.fetchAPI<{
+      valid: boolean;
+      coupon: {
+        code: string;
+        type: string;
+        value: number;
+        minNights?: number;
+      };
+    }>('/line/apply-coupon', {
+      method: 'POST',
+      body: JSON.stringify({ couponCode, checkInDate, checkOutDate, lineUserId }),
+    });
+  }
+
+  // === ADMIN CUSTOMER & COUPON ENDPOINTS ===
+
+  async getCustomers(): Promise<CustomerProfile[]> {
+    return this.fetchAPI<CustomerProfile[]>('/admin/customers', {}, true);
+  }
+
+  async getCustomer(lineUserId: string): Promise<{
+    profile: CustomerProfile;
+    bookings: Booking[];
+    coupons: Coupon[];
+  }> {
+    return this.fetchAPI<{
+      profile: CustomerProfile;
+      bookings: Booking[];
+      coupons: Coupon[];
+    }>(`/admin/customers/${lineUserId}`, {}, true);
+  }
+
+  async getCoupons(params?: { lineUserId?: string; status?: string }): Promise<Coupon[]> {
+    let endpoint = '/admin/coupons';
+    const queryParams: string[] = [];
+    if (params?.lineUserId) queryParams.push(`lineUserId=${params.lineUserId}`);
+    if (params?.status) queryParams.push(`status=${params.status}`);
+    if (queryParams.length > 0) {
+      endpoint += `?${queryParams.join('&')}`;
+    }
+    return this.fetchAPI<Coupon[]>(endpoint, {}, true);
+  }
+
+  async createCoupon(coupon: {
+    lineUserId: string;
+    type: 'stay_discount' | 'free_night';
+    value: number;
+    minNights?: number;
+    expiresAt?: string;
+  }): Promise<Coupon> {
+    return this.fetchAPI<Coupon>('/admin/coupons', {
+      method: 'POST',
+      body: JSON.stringify(coupon),
+    }, true);
+  }
+
+  async updateCoupon(couponId: string, updates: { status?: string; expiresAt?: string }): Promise<Coupon> {
+    return this.fetchAPI<Coupon>(`/admin/coupons/${couponId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(updates),
+    }, true);
+  }
+
+  // === SERVICE LOGS ENDPOINTS ===
+
+  async getServiceLogs(query?: string): Promise<{ logs: any[]; total: number }> {
+    const endpoint = query ? `/admin/logs?${query}` : '/admin/logs';
+    return this.fetchAPI<{ logs: any[]; total: number }>(endpoint, {}, true);
+  }
+
+  async getServiceLogsSummary(): Promise<any> {
+    return this.fetchAPI<any>('/admin/logs/summary', {}, true);
+  }
+
+  async exportServiceLogs(): Promise<string> {
+    const response = await fetch(`${API_BASE_URL}/admin/logs/export`, {
+      headers: {
+        'x-admin-key': this.getAdminPassword(),
+      },
+    });
+    if (!response.ok) {
+      throw new Error('Failed to export logs');
+    }
+    return response.text();
+  }
+
+  async clearServiceLogs(): Promise<void> {
+    await this.fetchAPI<void>('/admin/logs', {
+      method: 'DELETE',
+    }, true);
   }
 }
 

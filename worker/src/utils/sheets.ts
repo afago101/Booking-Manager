@@ -1,6 +1,6 @@
 // Google Sheets API integration
 
-import { Booking, Inventory, Setting } from '../types';
+import { Booking, Inventory, Setting, CustomerProfile, Coupon } from '../types';
 import { getGoogleAccessToken } from './jwt';
 
 const SHEETS_API_BASE = 'https://sheets.googleapis.com/v4/spreadsheets';
@@ -92,22 +92,25 @@ export class SheetsService {
       const row = rows[i];
       if (!row[0]) continue; // Skip empty rows
 
-      // 對應 Bookings 表頭順序：id, guestName, checkInDate, checkOutDate, numberOfGuests, 
-      // totalPrice, contactPhone, lineName, useCoupon, arrivalTime, status, createdAt
+      // 對應 Bookings 表頭順序：id, guestName, contactPhone, email, lineName, lineUserId, checkInDate, checkOutDate, 
+      // numberOfGuests, totalPrice, useCoupon, couponCode, arrivalTime, status, createdAt
       bookings.push({
         id: row[0] || '',
         guestName: row[1] || '',
-        checkInDate: row[2] || '',
-        checkOutDate: row[3] || '',
-        numberOfGuests: parseInt(row[4]) || 0,
-        totalPrice: parseFloat(row[5]) || 0,
-        contactPhone: row[6] || '',
-        lineName: row[7] || undefined,
-        useCoupon: row[8] === 'TRUE' || row[8] === true,
-        arrivalTime: row[9] || undefined,
-        status: (row[10] || 'pending') as 'pending' | 'confirmed' | 'cancelled',
-        createdAt: row[11] || new Date().toISOString(),
-        updatedAt: row[11] || new Date().toISOString(), // 使用 createdAt 作為 updatedAt
+        contactPhone: (row[2] || '').toString().replace(/^'/, '').trim(), // 去除前導撇號與空格
+        email: row[3] || '',
+        lineName: row[4] || undefined,
+        lineUserId: row[5] || undefined,
+        checkInDate: row[6] || '',
+        checkOutDate: row[7] || '',
+        numberOfGuests: parseInt(row[8]) || 0,
+        totalPrice: parseFloat(row[9]) || 0,
+        useCoupon: row[10] === 'TRUE' || row[10] === true,
+        couponCode: row[11] || undefined,
+        arrivalTime: row[12] || undefined,
+        status: (row[13] || 'pending') as 'pending' | 'confirmed' | 'cancelled',
+        createdAt: row[14] || new Date().toISOString(),
+        updatedAt: row[14] || new Date().toISOString(), // 使用 createdAt 作為 updatedAt
       });
     }
 
@@ -115,17 +118,26 @@ export class SheetsService {
   }
 
   async createBooking(booking: Booking): Promise<void> {
-    // 對應 Bookings 表頭順序
+    // 對應 Bookings 表頭順序：id, guestName, contactPhone, email, lineName, lineUserId, checkInDate, checkOutDate, 
+    // numberOfGuests, totalPrice, useCoupon, couponCode, arrivalTime, status, createdAt
+    // 手機號碼保留前導0：使用前導撇號讓 Google Sheets 以文字儲存
+    const phoneNumber = booking.contactPhone.startsWith('0') && !booking.contactPhone.startsWith("'")
+      ? `'${booking.contactPhone}`  // 如果以0開頭且沒有撇號，就加上撇號
+      : booking.contactPhone;
+    
     const row = [
       booking.id,
       booking.guestName,
+      phoneNumber,
+      booking.email || '',
+      booking.lineName || '',
+      booking.lineUserId || '',
       booking.checkInDate,
       booking.checkOutDate,
       booking.numberOfGuests,
       booking.totalPrice,
-      booking.contactPhone,
-      booking.lineName || '',
       booking.useCoupon ? 'TRUE' : 'FALSE',
+      booking.couponCode || '',
       booking.arrivalTime || '',
       booking.status,
       booking.createdAt,
@@ -152,23 +164,31 @@ export class SheetsService {
     const updated = { ...existing, ...updates, updatedAt: new Date().toISOString() };
     const rowIndex = index + 2; // +1 for header, +1 for 1-based indexing
 
-    // 對應 Bookings 表頭順序
+    // 對應 Bookings 表頭順序：id, guestName, contactPhone, email, lineName, lineUserId, checkInDate, checkOutDate, 
+    // numberOfGuests, totalPrice, useCoupon, couponCode, arrivalTime, status, createdAt
+    const phoneNumber = updated.contactPhone && updated.contactPhone.startsWith('0') && !updated.contactPhone.startsWith("'")
+      ? `'${updated.contactPhone}`
+      : updated.contactPhone;
+    
     const row = [
       updated.id,
       updated.guestName,
+      phoneNumber,
+      updated.email || '',
+      updated.lineName || '',
+      updated.lineUserId || '',
       updated.checkInDate,
       updated.checkOutDate,
       updated.numberOfGuests,
       updated.totalPrice,
-      updated.contactPhone,
-      updated.lineName || '',
       updated.useCoupon ? 'TRUE' : 'FALSE',
+      updated.couponCode || '',
       updated.arrivalTime || '',
       updated.status,
       updated.createdAt,
     ];
 
-    await this.updateRange(`Bookings!A${rowIndex}:L${rowIndex}`, [row]);
+    await this.updateRange(`Bookings!A${rowIndex}:O${rowIndex}`, [row]);
   }
 
   async deleteBooking(bookingId: string): Promise<void> {
@@ -183,8 +203,8 @@ export class SheetsService {
     }
 
     const rowIndex = index + 2;
-    // Clear the row (12 columns)
-    await this.updateRange(`Bookings!A${rowIndex}:L${rowIndex}`, [['', '', '', '', '', '', '', '', '', '', '', '']]);
+    // Clear the row (15 columns)
+    await this.updateRange(`Bookings!A${rowIndex}:O${rowIndex}`, [['', '', '', '', '', '', '', '', '', '', '', '', '', '', '']]);
   }
 
   // === PRICES (對應 Prices 工作表) ===
@@ -299,15 +319,165 @@ export class SheetsService {
 
   // === INITIALIZATION ===
 
+  // === CUSTOMER PROFILES ===
+
+  async getCustomerProfiles(): Promise<CustomerProfile[]> {
+    const rows = await this.getSheetData('Customer_Profile');
+    if (rows.length <= 1) return [];
+
+    const profiles: CustomerProfile[] = [];
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i];
+      if (!row[0]) continue;
+
+      profiles.push({
+        lineUserId: row[0] || '',
+        guestName: row[1] || '',
+        contactPhone: row[2] || '',
+        email: row[3] || undefined,
+        lineName: row[4] || undefined,
+        totalNights: parseInt(row[5]) || 0,
+        totalBookings: parseInt(row[6]) || 0,
+        createdAt: row[7] || new Date().toISOString(),
+        updatedAt: row[8] || new Date().toISOString(),
+      });
+    }
+
+    return profiles;
+  }
+
+  async getCustomerProfile(lineUserId: string): Promise<CustomerProfile | null> {
+    const profiles = await this.getCustomerProfiles();
+    return profiles.find(p => p.lineUserId === lineUserId) || null;
+  }
+
+  async createOrUpdateCustomerProfile(profile: CustomerProfile): Promise<void> {
+    const profiles = await this.getCustomerProfiles();
+    const index = profiles.findIndex(p => p.lineUserId === profile.lineUserId);
+
+    const phoneNumber = profile.contactPhone.startsWith('0') && !profile.contactPhone.startsWith("'")
+      ? `'${profile.contactPhone}`
+      : profile.contactPhone;
+
+    const row = [
+      profile.lineUserId,
+      profile.guestName,
+      phoneNumber,
+      profile.email || '',
+      profile.lineName || '',
+      profile.totalNights,
+      profile.totalBookings,
+      profile.createdAt,
+      new Date().toISOString(), // updatedAt
+    ];
+
+    if (index === -1) {
+      await this.appendRows('Customer_Profile', [row]);
+    } else {
+      const rowIndex = index + 2;
+      await this.updateRange(`Customer_Profile!A${rowIndex}:I${rowIndex}`, [row]);
+    }
+  }
+
+  // === COUPONS ===
+
+  async getCoupons(lineUserId?: string): Promise<Coupon[]> {
+    const rows = await this.getSheetData('Coupons');
+    if (rows.length <= 1) return [];
+
+    const coupons: Coupon[] = [];
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i];
+      if (!row[0]) continue;
+
+      const coupon: Coupon = {
+        id: row[0] || '',
+        couponCode: row[1] || '',
+        type: (row[2] || 'stay_discount') as 'stay_discount' | 'free_night',
+        lineUserId: row[3] || '',
+        status: (row[4] || 'active') as 'active' | 'used' | 'expired',
+        value: parseFloat(row[5]) || 0,
+        minNights: row[6] ? parseInt(row[6]) : undefined,
+        createdAt: row[7] || new Date().toISOString(),
+        usedAt: row[8] || undefined,
+        expiresAt: row[9] || undefined,
+      };
+
+      if (!lineUserId || coupon.lineUserId === lineUserId) {
+        coupons.push(coupon);
+      }
+    }
+
+    return coupons;
+  }
+
+  async createCoupon(coupon: Coupon): Promise<void> {
+    const row = [
+      coupon.id,
+      coupon.couponCode,
+      coupon.type,
+      coupon.lineUserId,
+      coupon.status,
+      coupon.value,
+      coupon.minNights || '',
+      coupon.createdAt,
+      coupon.usedAt || '',
+      coupon.expiresAt || '',
+    ];
+
+    await this.appendRows('Coupons', [row]);
+  }
+
+  async updateCoupon(couponId: string, updates: Partial<Coupon>): Promise<void> {
+    const rows = await this.getSheetData('Coupons');
+    const index = rows.findIndex((row, i) => i > 0 && row[0] === couponId);
+
+    if (index === -1) {
+      throw new Error('Coupon not found');
+    }
+
+    const existing = rows[index];
+    const updated: Coupon = {
+      id: existing[0],
+      couponCode: existing[1],
+      type: existing[2] as 'stay_discount' | 'free_night',
+      lineUserId: existing[3],
+      status: (updates.status || existing[4]) as 'active' | 'used' | 'expired',
+      value: parseFloat(existing[5]) || 0,
+      minNights: existing[6] ? parseInt(existing[6]) : undefined,
+      createdAt: existing[7],
+      usedAt: updates.usedAt || existing[8] || undefined,
+      expiresAt: updates.expiresAt || existing[9] || undefined,
+      ...updates,
+    };
+
+    const rowIndex = index + 1;
+    const row = [
+      updated.id,
+      updated.couponCode,
+      updated.type,
+      updated.lineUserId,
+      updated.status,
+      updated.value,
+      updated.minNights || '',
+      updated.createdAt,
+      updated.usedAt || '',
+      updated.expiresAt || '',
+    ];
+
+    await this.updateRange(`Coupons!A${rowIndex}:J${rowIndex}`, [row]);
+  }
+
+  // === INITIALIZATION ===
+
   async initializeSheets(): Promise<void> {
     try {
       // Check if sheets exist, if not create them with headers
       const bookingsData = await this.getSheetData('Bookings').catch(() => []);
       if (bookingsData.length === 0) {
         await this.appendRows('Bookings', [[
-          'id', 'guestName', 'checkInDate', 'checkOutDate', 'numberOfGuests', 
-          'totalPrice', 'contactPhone', 'lineName', 'useCoupon', 'arrivalTime', 
-          'status', 'createdAt'
+          'id', 'guestName', 'contactPhone', 'email', 'lineName', 'lineUserId', 'checkInDate', 'checkOutDate', 
+          'numberOfGuests', 'totalPrice', 'useCoupon', 'couponCode', 'arrivalTime', 'status', 'createdAt'
         ]]);
       }
 
@@ -332,6 +502,24 @@ export class SheetsService {
           ['emailFrom', 'noreply@yourdomain.com'],
           ['emailFromName', '訂房系統'],
         ]);
+      }
+
+      // Initialize Customer_Profile sheet
+      const customerData = await this.getSheetData('Customer_Profile').catch(() => []);
+      if (customerData.length === 0) {
+        await this.appendRows('Customer_Profile', [[
+          'lineUserId', 'guestName', 'contactPhone', 'email', 'lineName', 
+          'totalNights', 'totalBookings', 'createdAt', 'updatedAt'
+        ]]);
+      }
+
+      // Initialize Coupons sheet
+      const couponsData = await this.getSheetData('Coupons').catch(() => []);
+      if (couponsData.length === 0) {
+        await this.appendRows('Coupons', [[
+          'id', 'couponCode', 'type', 'lineUserId', 'status', 
+          'value', 'minNights', 'createdAt', 'usedAt', 'expiresAt'
+        ]]);
       }
     } catch (error) {
       console.error('Error initializing sheets:', error);

@@ -19,7 +19,28 @@ import {
   handleUpdateInventory,
   handleGetSettings,
   handleUpdateSettings,
+  handleGetCustomers,
+  handleGetCustomer,
+  handleGetCoupons,
+  handleCreateCoupon,
+  handleUpdateCoupon,
 } from './handlers/admin';
+import {
+  handleVerifyLineToken,
+  handleGetCustomerProfile,
+  handleSyncCustomerProfile,
+  handleBindBooking,
+  handleGetCoupons as handleGetLineCoupons,
+  handleGetCustomerBookings,
+  handleApplyCoupon,
+  handleLineOAuthCallback,
+} from './handlers/line';
+import {
+  handleGetLogs,
+  handleGetLogsSummary,
+  handleExportLogs,
+  handleClearLogs,
+} from './handlers/logs';
 import { errorResponse } from './utils/helpers';
 
 const app = new Hono<{ Bindings: Env }>();
@@ -49,11 +70,31 @@ app.get('/api/health', (c) => {
   return c.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// LINE Config endpoint (for frontend to get Channel ID)
+app.get('/api/line/config', (c) => {
+  const channelId = c.env.LINE_CHANNEL_ID;
+  if (!channelId) {
+    return errorResponse('LINE Channel ID not configured', 'INTERNAL_ERROR', 500);
+  }
+  return c.json({ channelId });
+});
+
 // === PUBLIC ENDPOINTS ===
 
 app.get('/api/availability', handleGetAvailability);
 app.post('/api/quote', handleQuote);
 app.post('/api/bookings', handleCreateBooking);
+
+// === LINE ENDPOINTS ===
+
+app.post('/api/line/verify', handleVerifyLineToken);
+app.post('/api/line/oauth/callback', handleLineOAuthCallback);
+app.get('/api/line/profile/:lineUserId', handleGetCustomerProfile);
+app.post('/api/line/sync-profile', handleSyncCustomerProfile);
+app.post('/api/line/bind-booking', handleBindBooking);
+app.get('/api/line/coupons/:lineUserId', handleGetLineCoupons);
+app.get('/api/line/bookings/:lineUserId', handleGetCustomerBookings);
+app.post('/api/line/apply-coupon', handleApplyCoupon);
 
 // === ADMIN ENDPOINTS ===
 
@@ -69,6 +110,21 @@ app.put('/api/admin/inventory/:date', handleUpdateInventory);
 
 app.get('/api/admin/settings', handleGetSettings);
 app.put('/api/admin/settings', handleUpdateSettings);
+
+// Customer management
+app.get('/api/admin/customers', handleGetCustomers);
+app.get('/api/admin/customers/:lineUserId', handleGetCustomer);
+
+// Coupon management
+app.get('/api/admin/coupons', handleGetCoupons);
+app.post('/api/admin/coupons', handleCreateCoupon);
+app.patch('/api/admin/coupons/:couponId', handleUpdateCoupon);
+
+// Service logs (admin only)
+app.get('/api/admin/logs', handleGetLogs);
+app.get('/api/admin/logs/summary', handleGetLogsSummary);
+app.get('/api/admin/logs/export', handleExportLogs);
+app.delete('/api/admin/logs', handleClearLogs);
 
 // === INITIALIZATION ENDPOINT ===
 

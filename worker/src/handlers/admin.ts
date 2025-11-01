@@ -214,3 +214,163 @@ export async function handleUpdateSettings(c: Context): Promise<Response> {
   }
 }
 
+// === CUSTOMER MANAGEMENT ===
+
+export async function handleGetCustomers(c: Context): Promise<Response> {
+  try {
+    const sheets = c.get('sheets') as SheetsService;
+    const customers = await sheets.getCustomerProfiles();
+    
+    // Sort by totalNights descending
+    customers.sort((a, b) => b.totalNights - a.totalNights);
+
+    return successResponse(customers);
+  } catch (error: any) {
+    console.error('Error in handleGetCustomers:', error);
+    return errorResponse(error.message || 'Internal server error', 'INTERNAL_ERROR', 500);
+  }
+}
+
+export async function handleGetCustomer(c: Context): Promise<Response> {
+  try {
+    const lineUserId = c.req.param('lineUserId');
+    if (!lineUserId) {
+      return errorResponse('Missing lineUserId', 'BAD_REQUEST', 400);
+    }
+
+    const sheets = c.get('sheets') as SheetsService;
+    const profile = await sheets.getCustomerProfile(lineUserId);
+
+    if (!profile) {
+      return errorResponse('Customer not found', 'NOT_FOUND', 404);
+    }
+
+    // Get customer bookings
+    const bookings = await sheets.getBookings();
+    const customerBookings = bookings.filter(b => b.lineUserId === lineUserId);
+
+    // Get customer coupons
+    const coupons = await sheets.getCoupons(lineUserId);
+
+    return successResponse({
+      profile,
+      bookings: customerBookings,
+      coupons,
+    });
+  } catch (error: any) {
+    console.error('Error in handleGetCustomer:', error);
+    return errorResponse(error.message || 'Internal server error', 'INTERNAL_ERROR', 500);
+  }
+}
+
+// === COUPON MANAGEMENT ===
+
+export async function handleGetCoupons(c: Context): Promise<Response> {
+  try {
+    const lineUserId = c.req.query('lineUserId');
+    const status = c.req.query('status');
+
+    const sheets = c.get('sheets') as SheetsService;
+    let coupons = await sheets.getCoupons();
+
+    // Filter by lineUserId if provided
+    if (lineUserId) {
+      coupons = coupons.filter(c => c.lineUserId === lineUserId);
+    }
+
+    // Filter by status if provided
+    if (status) {
+      coupons = coupons.filter(c => c.status === status);
+    }
+
+    // Sort by createdAt descending
+    coupons.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+
+    return successResponse(coupons);
+  } catch (error: any) {
+    console.error('Error in handleGetCoupons:', error);
+    return errorResponse(error.message || 'Internal server error', 'INTERNAL_ERROR', 500);
+  }
+}
+
+export async function handleCreateCoupon(c: Context): Promise<Response> {
+  try {
+    const body = await c.req.json();
+    const { lineUserId, type, value, minNights, expiresAt } = body;
+
+    if (!lineUserId || !type || value === undefined) {
+      return errorResponse('Missing required fields', 'BAD_REQUEST', 400);
+    }
+
+    if (!['stay_discount', 'free_night'].includes(type)) {
+      return errorResponse('Invalid coupon type', 'BAD_REQUEST', 400);
+    }
+
+    const sheets = c.get('sheets') as SheetsService;
+    
+    // Generate coupon code
+    const couponCode = type === 'stay_discount' 
+      ? `DISCOUNT${Date.now().toString(36).toUpperCase()}`
+      : `FREE${Date.now().toString(36).toUpperCase()}`;
+
+    const coupon = {
+      id: `coupon_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      couponCode,
+      type: type as 'stay_discount' | 'free_night',
+      lineUserId,
+      status: 'active' as const,
+      value,
+      minNights: minNights || undefined,
+      createdAt: new Date().toISOString(),
+      expiresAt: expiresAt || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+    };
+
+    await sheets.createCoupon(coupon);
+
+    return successResponse(coupon);
+  } catch (error: any) {
+    console.error('Error in handleCreateCoupon:', error);
+    return errorResponse(error.message || 'Internal server error', 'INTERNAL_ERROR', 500);
+  }
+}
+
+export async function handleUpdateCoupon(c: Context): Promise<Response> {
+  try {
+    const couponId = c.req.param('couponId');
+    const body = await c.req.json();
+    const { status, expiresAt } = body;
+
+    if (!couponId) {
+      return errorResponse('Missing couponId', 'BAD_REQUEST', 400);
+    }
+
+    const sheets = c.get('sheets') as SheetsService;
+    
+    const updates: any = {};
+    if (status && ['active', 'used', 'expired'].includes(status)) {
+      updates.status = status;
+      if (status === 'used') {
+        updates.usedAt = new Date().toISOString();
+      }
+    }
+    if (expiresAt) {
+      updates.expiresAt = expiresAt;
+    }
+
+    await sheets.updateCoupon(couponId, updates);
+
+    // Get updated coupon
+    const coupons = await sheets.getCoupons();
+    const updated = coupons.find(c => c.id === couponId);
+
+    if (!updated) {
+      return errorResponse('Coupon not found', 'NOT_FOUND', 404);
+    }
+
+    return successResponse(updated);
+  } catch (error: any) {
+    console.error('Error in handleUpdateCoupon:', error);
+    return errorResponse(error.message || 'Internal server error', 'INTERNAL_ERROR', 500);
+  }
+}
+

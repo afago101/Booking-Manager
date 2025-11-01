@@ -90,7 +90,7 @@ const AccountSettingsModal: React.FC<AccountSettingsModalProps> = ({ onClose }) 
             {error && <p className="text-red-500 text-sm">{error}</p>}
             {success && <p className="text-green-600 text-sm">{success}</p>}
           </div>
-          <div className="p-4 bg-gray-50 flex justify-end gap-2">
+          <div className="p-4 bg-white border-t flex justify-end gap-2">
             <button
               type="button"
               onClick={onClose}
@@ -101,7 +101,7 @@ const AccountSettingsModal: React.FC<AccountSettingsModalProps> = ({ onClose }) 
             <button
               type="submit"
               disabled={isSaving}
-              className="px-4 py-2 bg-brand-primary text-white text-sm font-medium rounded-md hover:bg-brand-dark disabled:bg-gray-400"
+              className="px-4 py-2 text-white text-sm font-medium rounded-md bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 disabled:bg-gray-400"
             >
               {isSaving ? '儲存中...' : '儲存變更'}
             </button>
