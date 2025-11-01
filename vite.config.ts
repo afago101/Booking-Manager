@@ -48,6 +48,18 @@ const copyImagesPlugin = () => ({
     } catch (err) {
       console.warn('[copy-images-plugin] failed to copy _redirects:', err);
     }
+    
+    // ✅ 修正：確保 index.css 被複製到 dist 目錄（如果需要作為靜態檔案）
+    const indexCssSrc = path.resolve(__dirname, 'index.css');
+    const indexCssDest = path.resolve(__dirname, 'dist', 'index.css');
+    try {
+      if (fs.existsSync(indexCssSrc)) {
+        fs.copyFileSync(indexCssSrc, indexCssDest);
+        console.log('[copy-images-plugin] index.css copied successfully');
+      }
+    } catch (err) {
+      console.warn('[copy-images-plugin] failed to copy index.css:', err);
+    }
   },
 });
 
