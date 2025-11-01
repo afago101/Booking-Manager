@@ -100,7 +100,44 @@ jobs:
             echo "❌ Build failed: dist directory not found"
             exit 1
           fi
-          echo "✅ Build output verified"
+          if [ ! -f "dist/index.html" ]; then
+            echo "❌ Build failed: dist/index.html not found"
+            exit 1
+          fi
+          # ✅ 關鍵驗證：確認 index.html 不包含 index.tsx
+          if grep -q "index.tsx" dist/index.html; then
+            echo "❌ Build failed: dist/index.html still contains index.tsx (should be replaced with bundled JS)"
+            echo "dist/index.html content:"
+            cat dist/index.html
+            exit 1
+          fi
+          # ✅ 確認包含打包後的 JS 檔案
+          if ! grep -q "assets/index-.*\.js" dist/index.html; then
+            echo "❌ Build failed: dist/index.html does not contain bundled JS file"
+            echo "dist/index.html content:"
+            cat dist/index.html
+            exit 1
+          fi
+          echo "✅ Build output verified:"
+          echo "  - dist/index.html exists"
+          echo "  - dist/index.html contains bundled JS (no index.tsx)"
+          ls -la dist/ | head -10
+          echo "Assets directory:"
+          ls -la dist/assets/ 2>/dev/null || echo "No assets directory"
+      
+      - name: Verify dist directory contents before deployment
+        run: |
+          echo "📦 Verifying dist directory contents:"
+          echo "Files in dist/:"
+          find dist -type f -maxdepth 2 | sort
+          echo ""
+          echo "Checking dist/index.html content:"
+          head -n 80 dist/index.html | tail -n 10
+          if grep -q "index.tsx" dist/index.html; then
+            echo "❌ ERROR: dist/index.html still references index.tsx!"
+            exit 1
+          fi
+          echo "✅ dist/index.html correctly references bundled JS files"
       
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/pages-action@v1

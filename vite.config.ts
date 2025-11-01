@@ -80,6 +80,20 @@ const copyImagesPlugin = () => ({
 export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, '.', '');
     return {
+      // ✅ 明確指定建置輸出目錄，確保生產環境路徑正確
+      build: {
+        outDir: 'dist',
+        assetsDir: 'assets',
+        emptyOutDir: true,
+        rollupOptions: {
+          output: {
+            // 確保檔案名稱格式一致
+            entryFileNames: 'assets/[name]-[hash].js',
+            chunkFileNames: 'assets/[name]-[hash].js',
+            assetFileNames: 'assets/[name]-[hash].[ext]',
+          },
+        },
+      },
       server: {
         port: 3000,
         host: '0.0.0.0',
