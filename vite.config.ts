@@ -48,6 +48,20 @@ const copyImagesPlugin = () => ({
     } catch (err) {
       console.warn('[copy-images-plugin] failed to copy _redirects:', err);
     }
+
+    // ✅ 新增：複製 _headers 檔案以確保正確的 MIME type
+    const headersSrc = path.resolve(__dirname, 'public', '_headers');
+    const headersDest = path.resolve(__dirname, 'dist', '_headers');
+    try {
+      if (fs.existsSync(headersSrc)) {
+        fs.copyFileSync(headersSrc, headersDest);
+        console.log('[copy-images-plugin] _headers file copied successfully');
+      } else {
+        console.warn('[copy-images-plugin] _headers file not found in public directory');
+      }
+    } catch (err) {
+      console.warn('[copy-images-plugin] failed to copy _headers:', err);
+    }
     
     // ✅ 修正：確保 index.css 被複製到 dist 目錄（如果需要作為靜態檔案）
     const indexCssSrc = path.resolve(__dirname, 'index.css');
